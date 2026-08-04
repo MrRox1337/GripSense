@@ -1,0 +1,15 @@
+# Runtime dependencies. Tkinter is part of the Python standard library and is
+# not listed here.
+#
+# Tested on Python 3.13.7 (Windows 11) with:
+#   dynamixel-sdk 4.0.5, PyYAML 6.0.3, pandas 3.0.5, matplotlib 3.11.1
+
+# Servo communication (Protocol 2.0). Pulls in pyserial.
+dynamixel-sdk>=3.7.31
+
+# Reads Config/*.yaml
+PyYAML>=6.0
+
+# Benchmark analysis and reporting only; not needed to drive the gripper.
+pandas>=2.0
+matplotlib>=3.7
