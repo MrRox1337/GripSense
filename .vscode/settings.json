@@ -1,0 +1,10 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+
+  // Scripts add Lib/ to sys.path at runtime. Pylance does not execute that
+  // line, so it needs to be told where the packages live or every
+  // "import gripper_settings" style import reports as unresolved.
+  "python.analysis.extraPaths": [
+    "./Lib"
+  ]
+}
