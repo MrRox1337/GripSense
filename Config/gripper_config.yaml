@@ -1,0 +1,30 @@
+# Application-level gripper settings, loaded by Lib/gripper_settings.py
+# and shared by every script. Motor register addresses live alongside this
+# file in xm430_control_table.yaml.
+
+port:
+  device: COM5
+  baudrate: 1000000
+  protocol_version: 2.0
+  dxl_id: 1
+
+position:
+  # Present position when the gripper is fully open, as measured by hand.
+  # The benchmark ignores this and re-zeros to wherever the gripper actually
+  # is at startup.
+  max_open: 3542
+  # Max-open -> min-open travel before the fingers snap shut.
+  travel_deg: 270.0
+
+current:
+  min: 100          # raw units (~269 mA)
+  max: 120          # raw units (~323 mA)
+
+velocity:
+  min: 100          # raw units
+  max: 480          # raw units (firmware default max)
+
+benchmark:
+  # Profile velocity used for every open/close move during a benchmark run.
+  # Held constant so grip force is the only variable under test.
+  profile_velocity: 480

@@ -1,0 +1,29 @@
+# Protocol 2.0 control table for the Dynamixel XM430-W210-T.
+# Copy this file and point gripper_settings.CONTROL_TABLE_PATH at the copy to
+# drive a different X-series servo without touching any code.
+
+addresses:
+  operating_mode: 11
+  torque_enable: 64
+  goal_current: 102
+  profile_velocity: 112
+  goal_position: 116
+  present_current: 126
+  present_position: 132
+
+lengths:
+  goal_current: 2
+  profile_velocity: 4
+  goal_position: 4
+  present_current: 2
+  present_position: 4
+
+values:
+  torque_disable: 0
+  torque_enable: 1
+  operating_mode_current_based_position: 5
+
+units:
+  position_deg_per_tick: 0.087891
+  current_ma_per_tick: 2.69
+  velocity_rev_per_min_per_tick: 0.229
