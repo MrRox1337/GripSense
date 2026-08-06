@@ -1,4 +1,4 @@
-# Slip-Aware Gripper Control & Grip Quality Benchmark
+# Slip-Aware Gripper Control, Grip Quality & Slip Detection Benchmark
 
 Control software and an experimental benchmarking rig for a slip-aware robotic
 gripper actuated by a **Dynamixel XM430-W210-T** servo, built for the PDE4445
@@ -22,17 +22,16 @@ how far the fingers were told to travel.
 
 The repository contains two applications and the shared libraries behind them:
 
-| Application                | Purpose                                                                                                                                                                 |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Manual control GUI**     | Three sliders (position, goal current, profile velocity) with a live servo readout. Used for setup, calibration and ad-hoc testing.                                     |
-| **Grip quality benchmark** | A guided experiment that measures how much grip force each finger material and padding combination produces at each current limit, then generates a statistical report. |
+| Application            | Purpose                                                                                                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Manual control GUI** | Three sliders (position, goal current, profile velocity) with a live servo readout. Used for setup and ad-hoc testing.                                          |
+| **Benchmark GUI**      | Travel-limit calibration, plus two guided experiments — grip force and slip detection — over the same test matrix, and the statistical report generated from them. |
 
 Both are plain Python with Tkinter — **no ROS2**.
 
-### The experiment
+### The experiments
 
-Grip force is measured by closing the gripper onto a kitchen scale and
-recording the reading. The full matrix is:
+Two tests run over the same matrix, each independently tracked:
 
 | Variable           | Levels                                         |
 | ------------------ | ---------------------------------------------- |
@@ -41,7 +40,38 @@ recording the reading. The full matrix is:
 | Goal current limit | 100, 105, 110, 115, 120 raw units (269–323 mA) |
 | Repeats            | 3 per cell                                     |
 
-**4 × 4 × 5 × 3 = 240 readings.**
+**4 × 4 × 5 × 3 = 240 readings per test.**
+
+**Grip force** is measured by closing the gripper onto a kitchen scale and
+recording the reading.
+
+**Slip detection** measures whether the gripper can tell that it has _lost_ an
+object, and how quickly. While the fingers are stalled against a gripped
+object the servo holds near its goal current. When the object is pulled free
+the fingers are suddenly unopposed and present current collapses. That
+collapse is the slip signal, and the time from the start of the watch to the
+first sample of the drop is the detection time.
+
+Both the drop threshold and the confirmation rule are configurable — see
+`slip:` in `Config/gripper_config.yaml`.
+
+### Travel-limit calibration
+
+No open or closed position is hardcoded. Finger geometry changes every time a
+set of printed fingers is swapped, so the limits are discovered on the
+hardware in two steps:
+
+1. **Max open, by hand.** Torque is released so the fingers can be opened
+   manually. Wherever they are left when you confirm becomes max open — this
+   is also when fingers are physically loaded or unloaded.
+2. **Closed limit, by current draw.** The gripper closes under a fixed current
+   limit until present current shows it has met the mechanical stop, then
+   backs off a few ticks. The backed-off position becomes min open, keeping
+   the finger joints' safety snap off its end stop rather than under constant
+   tension.
+
+The result is written to `Config/gripper_limits.yaml` and read back by every
+script, so both GUIs inherit the limits of the fingers actually fitted.
 
 ---
 
@@ -50,22 +80,28 @@ recording the reading. The full matrix is:
 ```
 pickerbot_gripper/
 ├── Config/
-│   ├── gripper_config.yaml         Port, servo ID, travel and limit settings
+│   ├── gripper_config.yaml         Port, servo ID, and the tuning values for
+│   │                               calibration and slip detection
 │   └── xm430_control_table.yaml    Register addresses + unit conversion scales
 ├── Lib/
-│   ├── gripper_settings.py         Resolves config paths; the only module that
-│   │                               knows the repository layout
+│   ├── gripper_settings.py         Resolves config paths and calibrated limits;
+│   │                               the only module that knows the layout
 │   ├── gripper_control_ui.py       Tk app for the manual control GUI
 │   ├── dynamixel_gripper/          Reusable servo driver (layout-agnostic)
 │   │   ├── __init__.py
-│   │   └── gripper.py
+│   │   ├── gripper.py              Register reads/writes behind a lock
+│   │   └── calibration.py          Two-step travel-limit discovery (no UI code)
 │   └── gripper_benchmark/
 │       ├── __init__.py
 │       ├── matrix.py               Test grid + "what counts as complete"
 │       ├── storage.py              Results CSV read/append
-│       ├── runner.py               Open/close/measure sequence (no UI code)
-│       ├── ui.py                   Tk configuration panel + scale popup
-│       └── report.py               Statistics table and figures
+│       ├── motion.py               Open/close/settle, shared by both runners
+│       ├── runner.py               Grip-force sequence (no UI code)
+│       ├── slip.py                 Slip-detection sequence (no UI code)
+│       ├── dialogs.py              Modal prompts raised from a worker thread
+│       ├── calibration_ui.py       Tk calibration wizard
+│       ├── ui.py                   Tk configuration panel and run controls
+│       └── report.py               Statistics tables and figures
 ├── Scripts/
 │   ├── gripper_control_gui.py      Entry point: manual control
 │   └── gripper_benchmark.py        Entry point: benchmark + report
@@ -76,8 +112,10 @@ pickerbot_gripper/
 Generated at runtime (not present on a fresh clone):
 
 ```
-benchmark_results.csv       One row per reading, appended as captured
-benchmark_report/           Statistics table + five figures
+Config/gripper_limits.yaml  Calibrated max/min open, rewritten per calibration
+benchmark_results.csv       Grip-force readings, appended as captured
+slip_results.csv            Slip-detection readings, appended as captured
+benchmark_report/           Two statistics tables + eight figures
 ```
 
 > **Note on directory names:** `Lib/` and `Scripts/` are also the directory
@@ -87,12 +125,240 @@ benchmark_report/           Statistics table + five figures
 
 ---
 
+## Software architecture
+
+The codebase is layered so that **nothing which talks to hardware knows
+anything about Tkinter**, and only one module knows where files live. That is
+what makes the measurement sequences testable without a servo and the driver
+reusable outside this project.
+
+| Layer              | Rule it obeys                                                                                                                     |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Entry points       | Put `Lib/` on `sys.path`, then hand off to a GUI or to the report builder. No logic of their own.                                  |
+| Tk layer           | Owns widgets and threads. Any multi-step procedure is delegated to the sequence layer; only the manual GUI's sliders command the servo directly, and each slider is a single register write. |
+| Sequence layer     | Drives the servo through a procedure. No `import tkinter` — progress and operator input travel by callback.                        |
+| Data layer         | Test grid, CSV, statistics. Touches neither hardware nor UI, so its rules can be tested on their own.                              |
+| `gripper_settings` | The only module that knows the repository layout or resolves a config path.                                                       |
+| Driver             | Register reads and writes, serialised behind a lock.                                                                              |
+
+### Control flow: who drives whom
+
+```mermaid
+flowchart TB
+    subgraph SCRIPTS["Scripts/ - entry points"]
+        CTRL["gripper_control_gui.py"]
+        BENCH["gripper_benchmark.py"]
+    end
+
+    subgraph TK["Lib/ - Tk layer: widgets and threads"]
+        CONTROLUI["gripper_control_ui.py<br/>sliders + poll thread"]
+        BENCHUI["gripper_benchmark/ui.py<br/>matrix + run control"]
+        CALUI["calibration_ui.py<br/>wizard"]
+        DIALOGS["dialogs.py<br/>worker-to-UI prompts"]
+    end
+
+    PICK{"selected test"}
+
+    subgraph SEQ["Lib/ - sequence layer: no UI code"]
+        CALIB["calibration.py<br/>travel-limit discovery"]
+        RUNNER["runner.py<br/>grip force"]
+        SLIPR["slip.py<br/>slip detection"]
+        MOTION["motion.py<br/>open / close / settle<br/>shared base class"]
+    end
+
+    DRIVER["dynamixel_gripper/gripper.py<br/>register access behind an RLock"]
+    HW(["Dynamixel XM430-W210-T<br/>U2D2 - Protocol 2.0 - 1 Mbaud"])
+
+    CTRL --> CONTROLUI
+    BENCH --> BENCHUI
+    BENCHUI --> DIALOGS
+    BENCHUI -- "Calibrate" --> CALUI
+    BENCHUI -- "Start Run" --> PICK
+    PICK -- "grip force" --> RUNNER
+    PICK -- "slip detection" --> SLIPR
+    CALUI --> CALIB
+    RUNNER -- "inherits" --> MOTION
+    SLIPR -- "inherits" --> MOTION
+    MOTION --> DRIVER
+    CALIB --> DRIVER
+    CONTROLUI --> DRIVER
+    DRIVER --> HW
+```
+
+The shape is the point: the Tk layer never reaches past the sequence layer, and
+everything funnels through one lock-guarded driver before it reaches the servo.
+`runner.py` and `slip.py` are interchangeable from the UI's point of view
+because both inherit the same `MotionBase` — adding a third test means adding a
+sibling there, not touching the UI's run machinery.
+
+### Data flow: configuration in, results out
+
+```mermaid
+flowchart LR
+    subgraph CFG["Config/"]
+        APPCFG["gripper_config.yaml<br/>port, currents, tuning"]
+        CTABLE["xm430_control_table.yaml<br/>registers + unit scales"]
+        LIMITS["gripper_limits.yaml<br/>calibrated max / min open"]
+    end
+
+    SETTINGS["gripper_settings.py<br/>the only layout-aware module"]
+    CALUI["calibration wizard"]
+    APPS["control GUI<br/>benchmark GUI"]
+    RUNS["runner.py / slip.py"]
+    STORAGE["storage.py"]
+    CSV[("benchmark_results.csv<br/>slip_results.csv")]
+    REPORT["report.py"]
+    OUT["benchmark_report/<br/>2 tables + 8 figures"]
+
+    APPCFG --> SETTINGS
+    CTABLE --> SETTINGS
+    LIMITS --> SETTINGS
+    SETTINGS --> APPS
+    SETTINGS --> RUNS
+    CALUI -- "save_limits" --> LIMITS
+    RUNS -- "one row per reading" --> STORAGE
+    STORAGE --> CSV
+    CSV --> REPORT
+    REPORT --> OUT
+```
+
+`gripper_settings` is the only place a path is resolved, so `dynamixel_gripper`
+stays reusable in another project and the sequence modules can be handed a fake
+servo in a test. Note the loop on the left: calibration writes the limits that
+every later session reads back, which is what replaced the hardcoded travel
+constants.
+
+### What runs on which thread
+
+Serial round trips take milliseconds and the operator prompts block for as long
+as a human takes, so every run happens on a worker thread. Tk widgets may only
+be touched from the main loop, which is what the `root.after` hops below are
+for — and why prompting for a weight needs an explicit handshake rather than a
+function call.
+
+```mermaid
+sequenceDiagram
+    participant UI as Tk main loop
+    participant W as Worker thread
+    participant R as Runner
+    participant S as Servo
+    participant F as CSV
+
+    UI->>W: Start Run - spawn thread
+    W->>R: run_combo(finger, padding, counts)
+    R->>S: torque on, open fully
+
+    loop 5 currents x 3 repeats
+        R->>S: close, poll until settled
+        R-->>UI: on_status / on_readout via root.after
+        R->>UI: ask_weight or ask_ready
+        Note over W,UI: worker blocks on an Event,<br/>rechecking abort every 200 ms
+        UI->>UI: show modal dialog
+        UI-->>W: operator submits - Event set
+        R->>F: append row immediately
+    end
+
+    R->>S: open fully
+    W->>S: disable torque
+    W-->>UI: refresh matrix via root.after
+```
+
+Because the row is written the moment it is captured, an abort at any point
+loses nothing already measured — which is what makes resuming a combination
+possible rather than restarting it.
+
+### Calibration
+
+```mermaid
+sequenceDiagram
+    actor Op as Operator
+    participant D as CalibrationDialog
+    participant C as GripperCalibrator
+    participant S as Servo
+
+    Note over Op,S: Step 1 - MAX OPEN, set by hand
+    D->>C: release_for_manual_positioning
+    C->>S: disable torque
+    loop every 200 ms, on the main loop
+        D->>S: read present position
+        S-->>D: live readout
+    end
+    Op->>D: fit fingers, open by hand, click Done
+    D->>C: capture_max_open
+    C->>S: read present position
+    S-->>C: MAX OPEN
+
+    Note over Op,S: Step 2 - closed limit, found by current draw
+    D->>C: probe_close_limit, on a worker thread
+    C->>S: goal current 110, slow velocity, torque on
+    C->>S: goal position = max_open - max_probe_ticks
+
+    loop until stalled, out of range, or timed out
+        C->>S: read position and current
+        alt current high AND position not changing
+            C->>C: count a stalled sample
+        else still moving, or current not yet high
+            C->>C: reset the count
+        end
+    end
+
+    C->>S: goal position = hard stop + backoff_ticks
+    C->>S: reopen to MAX OPEN and wait for arrival
+    C-->>D: CalibrationResult
+    D->>S: disable torque
+    Op->>D: Save limits
+    D->>D: write Config/gripper_limits.yaml
+```
+
+Both stall conditions are required. Current alone spikes on the initial
+acceleration and would call the stop immediately; position alone cannot tell a
+mechanical stop from a servo that has simply arrived.
+
+### The slip decision
+
+```mermaid
+flowchart LR
+    A["Fingers stall against the object"]
+    B["baseline = median holding current,<br/>taken after baseline_settle"]
+    C["threshold = baseline - max(min_drop_raw,<br/>drop_fraction x baseline)"]
+    D["Read present current at ~200 Hz"]
+    E{"current < threshold ?"}
+    F["Reset the run,<br/>forget the first-drop time"]
+    G["Stamp the time if this is<br/>the first sample of a run"]
+    H{"confirm_samples in a row ?"}
+    I["DETECTED<br/>time = stamped time - watch start"]
+    J["NOT DETECTED<br/>no time recorded"]
+
+    A --> B --> C --> D --> E
+    E -- "no" --> F
+    F --> D
+    E -- "yes" --> G --> H
+    H -- "no" --> D
+    H -- "yes" --> I
+    D -- "watch expires" --> J
+```
+
+Two details this diagram exists to make obvious. The threshold combines a
+proportional and an absolute margin, so a firm grip must fall proportionally
+far while a weak one must still fall a real amount. And the reported time comes
+from the **first** dropped sample, not the one that confirmed the run — the
+confirmation delay is a property of the detector, not of the gripper, and
+should not be charged to the measurement.
+
+One case the diagram leaves out: if the hold current is so low that the
+threshold works out at or below zero, no sample can ever fall under it. The
+runner detects that up front and warns, because otherwise a guaranteed timeout
+would be indistinguishable from a genuine failure to slip.
+
+---
+
 ## Hardware requirements
 
 - Dynamixel **XM430-W210-T** servo
 - U2D2 (or equivalent) USB-to-TTL interface
 - 12 V power supply for the servo
-- Kitchen scale (grams) for the benchmark
+- Kitchen scale (grams) for the grip-force test
+- A test object that can be pulled free by hand, for the slip test
 - 3D-printed fingers in PETG, PLA, ABS and TPU
 - Padding samples: rubber band, eraser, sponge
 
@@ -169,14 +435,20 @@ position when you move the fingers by hand.
 | **Profile Velocity**               | How fast the servo travels toward its goal (register 112). 1 unit ≈ 0.229 rev/min. Held constant during benchmarking so force is the only variable.                                                                           |
 | **Current-based position control** | Operating Mode 5: position control with a hard current ceiling. The fingers stall against an object instead of stripping the gearbox.                                                                                         |
 | **Torque enable**                  | Register 64. With torque off the servo is back-drivable and ignores position commands.                                                                                                                                        |
-| **Max open**                       | The fully open finger position, used as the travel reference point.                                                                                                                                                           |
-| **Min open**                       | The closed limit, 270° of travel below max open (3072 ticks).                                                                                                                                                                 |
-| **Re-zero**                        | Taking the _current_ present position to be max open and re-deriving min open from it. The servo's multi-turn position is whatever the previous session left behind, so the travel window is re-anchored rather than trusted. |
+| **Max open**                       | The fully open finger position, set by hand during calibration.                                                                                                                                                               |
+| **Min open**                       | The working closed limit: the mechanical stop found during calibration, backed off by `backoff_ticks`.                                                                                                                        |
+| **Calibration**                    | The two-step procedure that establishes max open and min open on the hardware. Run whenever fingers are loaded or unloaded; no position is hardcoded.                                                                        |
+| **Hard stop**                      | Where the fingers physically stop closing, detected as present current staying high while the position stops changing.                                                                                                        |
+| **Back-off**                       | The few ticks reopened from the hard stop to form min open, so the finger joints' safety snap is not held against its end stop under constant tension.                                                                        |
 | **Finger material**                | The filament a finger pair is printed in: PETG, PLA, ABS or TPU.                                                                                                                                                              |
 | **Padding**                        | The compliant layer bonded to the finger face: none, rubber band, eraser or sponge.                                                                                                                                           |
-| **Combination (combo)**            | One finger material paired with one padding — 16 in total. A benchmark run covers one combination across all five currents.                                                                                                   |
+| **Combination (combo)**            | One finger material paired with one padding — 16 in total. A run covers one combination across all five currents.                                                                                                             |
 | **Repeat**                         | One of the three measurements taken at a given combination and current.                                                                                                                                                       |
 | **CV (%)**                         | Coefficient of variation, `SD ÷ mean × 100`. A repeatability measure: lower means the grip is more consistent between repeats.                                                                                                |
+| **Slip**                           | Loss of a gripped object, seen as a sharp fall in present current once the fingers are no longer opposed by the object.                                                                                                        |
+| **Hold current**                   | The baseline present current the servo draws while stalled against a gripped object. Measured as the median of `baseline_samples` before the watch begins.                                                                    |
+| **Detection time**                 | Seconds from the start of the watch to the **first** sample of the current drop — not to the sample that confirmed it, so the confirmation delay does not inflate the measurement.                                            |
+| **Detection rate**                 | The share of a cell's repeats in which a slip was seen before the watch timed out.                                                                                                                                            |
 
 ---
 
@@ -196,29 +468,59 @@ Set the current slider _before_ enabling torque when handling anything
 fragile. **EMERGENCY STOP** disables torque immediately and makes the fingers
 back-drivable.
 
-### Running the benchmark
+### Calibrating the travel limits
 
 ```powershell
 python Scripts\gripper_benchmark.py
 ```
 
-1. **Check the derived limits** shown in the Hardware panel. On startup the
-   present position is taken to _be_ max open. If the gripper was left closed,
-   open it by hand and press **Re-zero**.
+Press **Calibrate travel limits…** — required before either test, and again
+whenever fingers are swapped.
+
+1. **Step 1.** Torque is released. Load or unload fingers now, open them fully
+   by hand, and press **Done — this is MAX OPEN**. The live readout shows the
+   position you are setting.
+2. **Step 2.** Confirm the prompt and keep hands clear. The gripper closes at
+   110 raw (~296 mA) until present current shows it has met the stop, backs
+   off `backoff_ticks`, and reopens.
+3. **Review and save.** The wizard shows max open, the hard stop, min open and
+   the resulting travel. **Save limits** writes `Config/gripper_limits.yaml`;
+   **Retry** discards the result and starts over.
+
+Nothing is written until you accept it, so a probe that catches on the wrong
+obstruction can simply be repeated. If no stop is found within the probe range
+or the timeout, calibration fails with an explanation rather than guessing a
+limit.
+
+> `backoff_ticks` is a rig-specific value — tune it in
+> `Config/gripper_config.yaml` once you can see how much slack the safety snap
+> needs.
+
+### Running a test
+
+1. **Choose the test** — grip force or slip detection. Each tracks its own
+   completion, so a combination finished for one may still be outstanding for
+   the other.
 2. **Select a combination** from the 4 × 4 grid. Completed cells read `done`
    and cannot be selected again.
 3. **Start Run.** Torque is enabled and the gripper sweeps all five current
-   limits, three closes each.
-4. **After each close, enter the scale reading** in the popup and press
-   Submit (or Enter). The gripper reopens and continues.
+   limits, three repeats each.
+4. Then, per repeat:
+   - **Grip force** — the gripper closes onto the scale; enter the reading in
+     the popup and press Submit (or Enter).
+   - **Slip detection** — a popup waits for you to seat the object. The
+     gripper grips it and measures its hold current, then the status line says
+     `PULL THE OBJECT until it slips`. Pull steadily; the drop is timed
+     automatically and the run continues on its own.
 5. When the combination finishes, torque is disabled automatically. Swap the
    fingers or padding and select the next cell.
 
-Each reading is written to `benchmark_results.csv` the moment you submit it.
-Aborting mid-run keeps everything already captured, and re-selecting that
-combination resumes from the exact repeat where it stopped — no duplicates.
+Each reading is written to its CSV the moment it is captured. Aborting mid-run
+keeps everything already captured, and re-selecting that combination resumes
+from the exact repeat where it stopped — no duplicates.
 
-Once all 16 combinations are complete, the report is generated automatically.
+Once every combination of **both** tests is complete, the report is generated
+automatically.
 
 ### Generating the report manually
 
@@ -226,7 +528,10 @@ Once all 16 combinations are complete, the report is generated automatically.
 python Scripts\gripper_benchmark.py --report
 ```
 
-Writes to `benchmark_report/`:
+Writes to `benchmark_report/`. Each test's outputs are produced only if that
+test has data, so a partial report is fine.
+
+**Grip force**
 
 | File                                    | Contents                                                       |
 | --------------------------------------- | -------------------------------------------------------------- |
@@ -237,7 +542,22 @@ Writes to `benchmark_report/`:
 | `fig4_repeatability_cv_heatmap.png`     | CV% — which settings grip most consistently                    |
 | `fig5_combination_ranking.png`          | Combinations ranked by mean grip force                         |
 
-### Results CSV schema
+**Slip detection**
+
+| File                                     | Contents                                                                     |
+| ---------------------------------------- | ------------------------------------------------------------------------------ |
+| `slip_summary_statistics.csv` / `.png`   | N, slips seen, detection rate, timing statistics, hold current and drop % per cell |
+| `fig6_slip_detection_time_by_finger.png` | Detection time vs current, one panel per material, one line per padding        |
+| `fig7_slip_detection_rate_heatmap.png`   | How reliably the drop was seen across the matrix                               |
+| `fig8_slip_detection_time_heatmap.png`   | Mean detection time across the matrix                                          |
+
+Timing figures use only the repeats where a slip was actually detected; cells
+with none appear as `-` in the table and are left blank in the plots rather
+than being counted as zero.
+
+### Results CSV schemas
+
+`benchmark_results.csv` — grip force:
 
 | Column                                      | Description                                |
 | ------------------------------------------- | ------------------------------------------ |
@@ -249,6 +569,21 @@ Writes to `benchmark_report/`:
 | `weight_g`                                  | Scale reading entered by the operator      |
 | `present_position_ticks`                    | Where the fingers stalled                  |
 | `present_current_raw`, `present_current_ma` | Actual current drawn at stall              |
+
+`slip_results.csv` — slip detection. Columns after `slip_detected` are blank
+when no slip was seen:
+
+| Column                                          | Description                                             |
+| ----------------------------------------------- | ------------------------------------------------------- |
+| `timestamp`, `finger_material`, `padding`       | As above                                                |
+| `goal_current_raw`, `goal_current_ma`, `repeat` | As above                                                |
+| `slip_detected`                                 | 1 if the drop was seen before the watch timed out, else 0 |
+| `detection_time_s`                              | Seconds to the first sample of the drop                 |
+| `baseline_current_raw`, `baseline_current_ma`   | Hold current before the drop                            |
+| `slip_current_raw`, `slip_current_ma`           | Current at the first dropped sample                     |
+| `drop_raw`, `drop_percent`                      | Size of the fall, absolute and relative to the baseline |
+| `position_at_slip_ticks`, `position_shift_ticks`| Where the fingers ended up, and how far they moved      |
+| `watch_duration_s`, `samples`                   | Length of the watch and how many current reads it took  |
 
 ### Driving the gripper from your own script
 
@@ -263,11 +598,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "Lib"))
 
 import gripper_settings as settings
 
+max_open, min_open, calibrated = settings.travel_limits()
+if not calibrated:
+    raise SystemExit("Calibrate the fingers first.")
+
 gripper = settings.connect()          # opens the port, sets Operating Mode 5
 try:
     gripper.set_goal_current(110)     # ~296 mA grip ceiling
     gripper.set_profile_velocity(settings.VELOCITY_MAX)
-    gripper.set_goal_position(settings.MIN_OPEN_POSITION)
+    gripper.set_goal_position(min_open)
     gripper.enable_torque()
 
     print(gripper.read_present_position(), gripper.read_present_current())
@@ -278,25 +617,58 @@ finally:
 `DynamixelGripper` serialises every read and write behind a lock, so a polling
 thread and a command thread can share one instance safely.
 
-### Running the benchmark sequence headlessly
+### Calibrating from your own script
 
-`BenchmarkRunner` contains no UI code — supply callbacks and it will drive the
+`GripperCalibrator` has no UI dependency either — step 1 is just "read the
+position whenever the operator says so":
+
+```python
+from dynamixel_gripper import GripperCalibrator
+
+calibrator = GripperCalibrator(gripper, on_status=print, **settings.CALIBRATION)
+calibrator.release_for_manual_positioning()
+input("Open the fingers by hand, then press Enter...")
+calibrator.capture_max_open()
+
+result = calibrator.probe_close_limit()   # raises CalibrationError if no stop
+settings.save_limits(result)
+```
+
+### Running a test sequence headlessly
+
+Neither runner contains UI code — supply callbacks and they will drive the
 sequence from anywhere:
 
 ```python
-from gripper_benchmark import BenchmarkRunner, append_row, recorded_counts
+from gripper_benchmark import BenchmarkRunner, SlipRunner, append_row, recorded_counts
+from gripper_benchmark.matrix import CSV_FIELDS, SLIP_CSV_FIELDS
 
 runner = BenchmarkRunner(
     gripper,
-    travel_ticks=settings.TRAVEL_TICKS,
+    max_open=max_open,
+    min_open=min_open,
     profile_velocity=settings.BENCHMARK_PROFILE_VELOCITY,
     on_status=print,
-    on_reading=lambda row: append_row(row, settings.RESULTS_CSV),
+    on_reading=lambda row: append_row(row, settings.RESULTS_CSV, CSV_FIELDS),
     ask_weight=lambda finger, pad, current, rep: float(input("Scale (g): ")),
 )
-runner.rezero()
 runner.run_combo("PETG", "Sponge", recorded_counts([], "PETG", "Sponge"))
+
+slip = SlipRunner(
+    gripper,
+    max_open=max_open,
+    min_open=min_open,
+    profile_velocity=settings.BENCHMARK_PROFILE_VELOCITY,
+    on_status=print,
+    on_reading=lambda row: append_row(row, settings.SLIP_CSV, SLIP_CSV_FIELDS),
+    ask_ready=lambda finger, pad, current, rep: input("Object in place? "),
+    **settings.SLIP,
+)
+slip.run_combo("PETG", "Sponge", recorded_counts([], "PETG", "Sponge"))
 ```
+
+Both raise `AbortedError` if the shared `abort_event` is set, and both accept
+`counts` so a partially recorded combination continues rather than restarts.
 
 ---
 
@@ -311,13 +683,35 @@ The port name is wrong, the U2D2 is unplugged, or another program is holding
 the port — including a second copy of this application. Check Device Manager
 and update `Config/gripper_config.yaml`.
 
-**The gripper closes too far and jams.**
-The benchmark assumes the present position at startup _is_ max open, and
-derives the closed limit 270° below it. Launching with the gripper already
-closed puts that limit past the mechanical stops. Open the fingers by hand and
-press **Re-zero**, then check the limits shown in the Hardware panel.
+**"NOT CALIBRATED" is shown and Start Run is greyed out.**
+The limits have never been established for the fingers currently fitted. Run
+the calibration wizard. The manual control GUI still opens, but says so and
+falls back to the nominal values in `gripper_config.yaml`.
 
-**Can I resume an aborted benchmark run?**
+**Calibration says it travelled the full probe range without meeting a stop.**
+Either the fingers are not mounted, or max open was captured while the gripper
+was already closed, so closing further found nothing. Re-open by hand and
+retry. Nothing is saved when this happens — the previous limits stay in force.
+
+**The closing probe stops too early.**
+It calls the stop when present current stays above
+`stall_current_fraction × probe_current` while the position stops changing. A
+stiff joint or a high-friction padding can trip that mid-travel. Raise
+`probe_current`, or raise `stall_current_fraction` toward 1.0, in
+`Config/gripper_config.yaml`.
+
+**A slip is never detected even though the object clearly came out.**
+Check `baseline_current_raw` in `slip_results.csv`. If the hold current is
+small, the drop that `drop_fraction`/`min_drop_raw` demands cannot happen — the
+status line warns about this at the time. It usually means the fingers were not
+really loaded against the object. Grip something firmer, raise the goal
+current, or lower `min_drop_raw`.
+
+**Slips are detected the instant the watch starts.**
+The baseline was measured before the grip had settled. Increase
+`baseline_settle`, or `baseline_samples`, in the `slip:` block.
+
+**Can I resume an aborted run?**
 Yes. Readings are written to the CSV as they are captured. Re-select the
 combination, confirm the resume prompt, and it continues from the repeat where
 it stopped without duplicating rows.
@@ -349,9 +743,20 @@ Plain Python was a requirement of the brief. The driver has no framework
 dependencies, so a ROS2 node could wrap it unchanged.
 
 **Why is `benchmark_results.csv` committed rather than ignored?**
-It holds 240 hand-recorded measurements that cannot be regenerated without
-repeating the entire experiment. The report is derived from it and is cheap to
-rebuild, but the raw data is not.
+It and `slip_results.csv` hold 480 measurements that cannot be regenerated
+without repeating the entire experiment. The report is derived from them and is
+cheap to rebuild, but the raw data is not.
+
+**Why is `Config/gripper_limits.yaml` committed if it is generated?**
+It records which fingers the committed results were taken with. It is rewritten
+by every calibration, so treat a change to it as part of a finger swap rather
+than as noise.
+
+**How fast is slip sampling, and does that bound the detection time?**
+Yes. The watch loop reads only present current — position costs a second round
+trip and would halve the rate — giving roughly 200 Hz at 1 Mbaud with the
+default `poll_interval` of 5 ms. Detection times are therefore meaningful to
+about ±5 ms, plus however long the object takes to actually let go.
 
 ---
 
