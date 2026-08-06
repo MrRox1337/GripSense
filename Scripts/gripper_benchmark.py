@@ -1,16 +1,29 @@
 """
-Grip quality benchmark for the slip-aware Dynamixel XM430-W210-T gripper.
+Benchmarks for the slip-aware Dynamixel XM430-W210-T gripper.
 
-For every (finger material x padding) combination the gripper closes onto a
-kitchen scale at each goal-current limit, three times. After each close a
-popup asks for the weight the scale showed; submitting it reopens the gripper
-and starts the next repeat. Readings are appended to benchmark_results.csv as
-they are captured, and the report is generated automatically once all 16
-combinations are complete.
+Start by calibrating the travel limits: torque is released so the fingers can
+be opened by hand to set MAX OPEN, then the gripper closes under a current
+limit until it meets its mechanical stop and backs off a few ticks to set
+MIN OPEN. Run this whenever fingers are loaded or unloaded - no position is
+hardcoded.
+
+Two tests then run over the same (finger material x padding) matrix, each at
+every goal-current limit, three times:
+
+  Grip force       the gripper closes onto a kitchen scale and a popup asks
+                   for the weight it showed. Recorded to benchmark_results.csv.
+  Slip detection   the gripper holds the object while you pull it. The sudden
+                   fall in present current when the object escapes is the
+                   slip, and the time to see it is recorded to
+                   slip_results.csv.
+
+Readings are appended as they are captured, so an aborted run resumes rather
+than restarts. The report is generated automatically once every combination of
+both tests is complete.
 
 Usage:
     python Scripts/gripper_benchmark.py            # measurement GUI
-    python Scripts/gripper_benchmark.py --report   # rebuild report from CSV
+    python Scripts/gripper_benchmark.py --report   # rebuild report from CSVs
 """
 
 import sys
@@ -28,7 +41,9 @@ from gripper_benchmark.ui import BenchmarkApp
 
 def main():
     if "--report" in sys.argv:
-        outputs = generate_report(settings.RESULTS_CSV, settings.REPORT_DIR)
+        outputs = generate_report(
+            settings.RESULTS_CSV, settings.REPORT_DIR, settings.SLIP_CSV
+        )
         print(f"Report written to {settings.REPORT_DIR}:")
         for path in outputs:
             print(f"  {path.name}")
