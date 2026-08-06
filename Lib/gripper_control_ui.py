@@ -17,8 +17,11 @@ POSITION_UNIT_DEG = settings.POSITION_UNIT_DEG
 CURRENT_UNIT_MA = settings.CURRENT_UNIT_MA
 VELOCITY_UNIT_REV = settings.VELOCITY_UNIT_REV
 
-MAX_OPEN_POSITION = settings.MAX_OPEN_POSITION
-MIN_OPEN_POSITION = settings.MIN_OPEN_POSITION
+# Slider bounds come from the last calibration, so the position slider spans
+# the travel of the fingers actually fitted. Falls back to the nominal values
+# in gripper_config.yaml if the fingers have never been calibrated, which the
+# UI says out loud rather than pretending the range is trustworthy.
+MAX_OPEN_POSITION, MIN_OPEN_POSITION, LIMITS_CALIBRATED = settings.travel_limits()
 
 CURRENT_MIN = settings.CURRENT_MIN
 CURRENT_MAX = settings.CURRENT_MAX
@@ -71,8 +74,27 @@ class GripperApp:
         )
 
         # --- Position slider ---
-        pos_frame = ttk.LabelFrame(frame, text="Position (Max Open -> Min Open)")
+        source = "calibrated" if LIMITS_CALIBRATED else "NOT CALIBRATED - nominal fallback"
+        pos_frame = ttk.LabelFrame(
+            frame,
+            text=(
+                f"Position: {MAX_OPEN_POSITION} (max open) -> {MIN_OPEN_POSITION} "
+                f"(min open)  [{source}]"
+            ),
+        )
         pos_frame.grid(row=1, column=0, columnspan=2, sticky="ew", **pad)
+
+        if not LIMITS_CALIBRATED:
+            ttk.Label(
+                pos_frame,
+                text=(
+                    "These limits belong to whichever fingers were fitted when they were\n"
+                    "written into gripper_config.yaml. Run the calibration wizard in\n"
+                    "Scripts/gripper_benchmark.py before trusting the ends of this slider."
+                ),
+                foreground="red",
+                justify="left",
+            ).grid(row=2, column=0, columnspan=3, padx=8, pady=(0, 6), sticky="w")
 
         self.position_var = tk.IntVar(value=MAX_OPEN_POSITION)
         self.position_slider = ttk.Scale(
