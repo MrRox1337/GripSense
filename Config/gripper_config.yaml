@@ -9,9 +9,10 @@ port:
   dxl_id: 1
 
 position:
-  # Present position when the gripper is fully open, as measured by hand.
-  # The benchmark ignores this and re-zeros to wherever the gripper actually
-  # is at startup.
+  # FALLBACK ONLY. The real limits are discovered by the calibration wizard
+  # and written to gripper_limits.yaml; these values are used only before the
+  # first calibration, or if that file is deleted. Do not tune them - swap
+  # fingers and re-run calibration instead.
   max_open: 3542
   # Max-open -> min-open travel before the fingers snap shut.
   travel_deg: 270.0
@@ -28,3 +29,57 @@ benchmark:
   # Profile velocity used for every open/close move during a benchmark run.
   # Held constant so grip force is the only variable under test.
   profile_velocity: 480
+
+# ---------------------------------------------------------------------------
+# Travel-limit calibration
+#
+# Run every time a set of printed fingers is loaded or unloaded. Nothing here
+# is a position: these are only the tuning values for the two-step discovery
+# procedure (open by hand -> probe closed under current limit -> back off).
+# ---------------------------------------------------------------------------
+calibration:
+  probe_current: 110            # raw (~296 mA) limit for the closing probe
+  probe_velocity: 60            # raw; slow, so the fingers meet the stop gently
+  return_velocity: 480          # raw; used to reopen once the stop is found
+
+  # Ticks reopened from the hard stop to become MIN OPEN. Keeps the finger
+  # joints' safety snap off its end stop instead of under constant tension.
+  # TUNE THIS ON THE RIG.
+  backoff_ticks: 20
+
+  # The stop is called when present current has been at least this fraction of
+  # probe_current while the position stopped changing, for this many samples
+  # in a row. Both conditions are required: the current alone spikes on the
+  # initial acceleration.
+  stall_current_fraction: 0.85
+  stall_stable_samples: 5
+  stall_position_tolerance: 3   # ticks of movement still counted as stopped
+
+  poll_interval: 0.05
+  # Safety envelope. The probe never commands more than this much travel from
+  # max open, and gives up after this long; either bound means the stop was
+  # never found and the calibration is rejected rather than guessed at.
+  max_probe_ticks: 4096
+  probe_timeout: 30.0
+
+# ---------------------------------------------------------------------------
+# Slip detection
+#
+# The gripper holds an object at the goal current while the operator loads it.
+# While the fingers are stalled against the object the servo draws close to
+# its current limit; when the object escapes, the fingers are free to move and
+# present current collapses. That collapse is the slip.
+# ---------------------------------------------------------------------------
+slip:
+  poll_interval: 0.005          # ~200 Hz; bounds the detection-time resolution
+  baseline_settle: 1.0          # let the grip stabilise before baselining
+  baseline_samples: 20          # median of these becomes the holding current
+
+  # A sample counts as dropped when present current falls below the baseline
+  # by BOTH of these, so a firm grip needs a proportionally large fall while a
+  # weak one still needs an absolute one.
+  drop_fraction: 0.35
+  min_drop_raw: 15
+
+  confirm_samples: 3            # consecutive dropped samples before calling it
+  timeout: 25.0                 # no slip within this window is recorded as such
