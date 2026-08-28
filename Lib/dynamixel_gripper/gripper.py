@@ -31,6 +31,21 @@ def to_signed16(value):
     return value
 
 
+def to_signed32(value):
+    """
+    Convert an unsigned 32-bit register read-back into a signed value.
+
+    Present Position is signed: fingers that close past tick 0 report negative
+    positions, which arrive over the wire as values just under 2**32. Without
+    this, -141 reads back as 4294967155 and every comparison against it - the
+    settle tolerance, the calibration floor guard, the travel span - is wrong
+    by four billion.
+    """
+    if value > 0x7FFFFFFF:
+        value -= 0x100000000
+    return value
+
+
 class DynamixelGripper:
     """
     All reads/writes go through self.lock. The SDK's PortHandler tracks a
@@ -152,7 +167,7 @@ class DynamixelGripper:
                 self.ct["addresses"]["present_position"],
             )
         self._check(comm_result, error, "Read present position")
-        return value
+        return to_signed32(value)
 
     def read_present_current(self):
         with self.lock:
