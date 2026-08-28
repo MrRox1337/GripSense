@@ -6,7 +6,7 @@ port:
   device: COM5
   baudrate: 1000000
   protocol_version: 2.0
-  dxl_id: 1
+  dxl_id: 2
 
 position:
   # FALLBACK ONLY. The real limits are discovered by the calibration wizard
@@ -18,12 +18,12 @@ position:
   travel_deg: 270.0
 
 current:
-  min: 100          # raw units (~269 mA)
-  max: 120          # raw units (~323 mA)
+  min: 100 # raw units (~269 mA)
+  max: 120 # raw units (~323 mA)
 
 velocity:
-  min: 100          # raw units
-  max: 480          # raw units (firmware default max)
+  min: 100 # raw units
+  max: 480 # raw units (firmware default max)
 
 benchmark:
   # Profile velocity used for every open/close move during a benchmark run.
@@ -38,9 +38,9 @@ benchmark:
 # procedure (open by hand -> probe closed under current limit -> back off).
 # ---------------------------------------------------------------------------
 calibration:
-  probe_current: 110            # raw (~296 mA) limit for the closing probe
-  probe_velocity: 60            # raw; slow, so the fingers meet the stop gently
-  return_velocity: 480          # raw; used to reopen once the stop is found
+  probe_current: 110 # raw (~296 mA) limit for the closing probe
+  probe_velocity: 60 # raw; slow, so the fingers meet the stop gently
+  return_velocity: 480 # raw; used to reopen once the stop is found
 
   # Ticks reopened from the hard stop to become MIN OPEN. Keeps the finger
   # joints' safety snap off its end stop instead of under constant tension.
@@ -53,7 +53,7 @@ calibration:
   # initial acceleration.
   stall_current_fraction: 0.85
   stall_stable_samples: 5
-  stall_position_tolerance: 3   # ticks of movement still counted as stopped
+  stall_position_tolerance: 3 # ticks of movement still counted as stopped
 
   poll_interval: 0.05
   # Safety envelope. The probe never commands more than this much travel from
@@ -71,9 +71,9 @@ calibration:
 # present current collapses. That collapse is the slip.
 # ---------------------------------------------------------------------------
 slip:
-  poll_interval: 0.005          # ~200 Hz; bounds the detection-time resolution
-  baseline_settle: 1.0          # let the grip stabilise before baselining
-  baseline_samples: 20          # median of these becomes the holding current
+  poll_interval: 0.005 # ~200 Hz; bounds the detection-time resolution
+  baseline_settle: 1.0 # let the grip stabilise before baselining
+  baseline_samples: 20 # median of these becomes the holding current
 
   # A sample counts as dropped when present current falls below the baseline
   # by BOTH of these, so a firm grip needs a proportionally large fall while a
@@ -81,5 +81,29 @@ slip:
   drop_fraction: 0.35
   min_drop_raw: 15
 
-  confirm_samples: 3            # consecutive dropped samples before calling it
-  timeout: 25.0                 # no slip within this window is recorded as such
+  confirm_samples: 3 # consecutive dropped samples before calling it
+  timeout: 25.0 # no slip within this window is recorded as such
+
+# ---------------------------------------------------------------------------
+# Grasp classification (dynamixel_gripper.GripperAPI)
+#
+# What separates "holding something" from "closed on nothing". Slip thresholds
+# are NOT here: the API reuses the slip: block above, so the benchmark and the
+# API judge a slip by the same rule and one set of numbers stays authoritative.
+#
+# Every key here has a matching default in api.py, so a gripper config without
+# this section still drives the API - these only override the defaults.
+# ---------------------------------------------------------------------------
+grasp:
+  profile_velocity: 480 # raw; the speed the API's own moves run at
+
+  # Full closure. If the fingers end this close to MIN OPEN there was nothing
+  # between them to stop on, which is a miss rather than a grip.
+  miss_tolerance_ticks: 15
+
+  # Stalling short of the target only counts as a grip if the servo is actually
+  # pushing: present current must be at least this fraction of the goal current.
+  hold_current_fraction: 0.5
+
+  settle_timeout: 8.0 # give up waiting for a move to settle
+  idle_poll_interval: 0.1 # monitor sample rate while not holding
