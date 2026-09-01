@@ -6,7 +6,7 @@ port:
   device: COM5
   baudrate: 1000000
   protocol_version: 2.0
-  dxl_id: 2
+  dxl_id: 1
 
 position:
   # FALLBACK ONLY. The real limits are discovered by the calibration wizard
