@@ -44,6 +44,10 @@ Two tests run over the same matrix, each independently tracked:
 
 **4 × 4 × 5 × 3 = 240 readings per test.**
 
+Those levels are not baked into the code — they are the `matrix:` block of
+`Config/benchmark_params.yaml`, and the UI grid, the completion bookkeeping and
+the figures all derive from them.
+
 **Grip force** is measured by closing the gripper onto a kitchen scale and
 recording the reading.
 
@@ -116,6 +120,8 @@ pickerbot_gripper/
 │   ├── gripper_config.yaml         Port, servo ID, and the tuning values for
 │   │                               calibration, slip detection and grasp
 │   │                               classification
+│   ├── benchmark_params.yaml       The experiment design: test matrix, current
+│   │                               sweep, repeats and sequence timings
 │   └── xm430_control_table.yaml    Register addresses + unit conversion scales
 ├── Lib/
 │   ├── gripper_settings.py         Resolves config paths and calibrated limits;
@@ -137,7 +143,8 @@ pickerbot_gripper/
 │   │                               thread, ok / slip / miss status
 │   └── gripper_benchmark/
 │       ├── __init__.py
-│       ├── matrix.py               Test grid + "what counts as complete"
+│       ├── matrix.py               Test grid (from benchmark_params.yaml)
+│       │                           + "what counts as complete"
 │       ├── storage.py              Results CSV read/append
 │       ├── motion.py               Re-export of dynamixel_gripper.motion
 │       ├── runner.py               Grip-force sequence (no UI code)
@@ -259,6 +266,7 @@ benchmark and the GUIs are consumers of it, not part of it.
 flowchart LR
     subgraph CFG["Config/"]
         APPCFG["gripper_config.yaml<br/>port, currents, tuning"]
+        BENCH["benchmark_params.yaml<br/>matrix, sweep, timings"]
         CTABLE["xm430_control_table.yaml<br/>registers + unit scales"]
         LIMITS["gripper_limits.yaml<br/>calibrated max / min open"]
     end
@@ -274,6 +282,7 @@ flowchart LR
     OUT["benchmark_report/<br/>2 tables + 8 figures"]
 
     APPCFG --> SETTINGS
+    BENCH --> SETTINGS
     CTABLE --> SETTINGS
     LIMITS --> SETTINGS
     APPCFG -. "paths from the caller" .-> API
@@ -968,9 +977,14 @@ combination, confirm the resume prompt, and it continues from the repeat where
 it stopped without duplicating rows.
 
 **Can I change the materials, paddings or current levels?**
-Edit `Lib/gripper_benchmark/matrix.py`. Everything else — the UI grid, the
-completion logic, the figures — derives from those lists. Existing CSV rows for
-removed levels are simply ignored.
+Edit the `matrix:` block in `Config/benchmark_params.yaml` — no code change
+needed. Everything else — the UI grid, the completion logic, the figures —
+derives from those lists.
+
+Be aware this invalidates collected data. The completion bookkeeping counts
+recorded rows per finger / padding / current, so renaming or removing a level
+orphans its existing rows in the CSV (they are ignored, not deleted), and
+adding one marks previously complete combinations incomplete again.
 
 **Can I use a different Dynamixel servo?**
 Copy `Config/xm430_control_table.yaml`, edit the register addresses and unit
