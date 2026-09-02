@@ -1,6 +1,9 @@
 # Application-level gripper settings, loaded by Lib/gripper_settings.py
-# and shared by every script. Motor register addresses live alongside this
-# file in xm430_control_table.yaml.
+# and shared by every script. This file describes how the GRIPPER behaves.
+#
+# Alongside it: xm430_control_table.yaml holds the motor register addresses,
+# and benchmark_params.yaml holds the experiment design - the test matrix, the
+# currents swept, and the sequence timings.
 
 port:
   device: COM5
@@ -24,11 +27,6 @@ current:
 velocity:
   min: 100 # raw units
   max: 480 # raw units (firmware default max)
-
-benchmark:
-  # Profile velocity used for every open/close move during a benchmark run.
-  # Held constant so grip force is the only variable under test.
-  profile_velocity: 480
 
 # ---------------------------------------------------------------------------
 # Travel-limit calibration

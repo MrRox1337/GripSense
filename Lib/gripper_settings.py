@@ -20,6 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = PROJECT_ROOT / "Config"
 
 APP_CONFIG_PATH = CONFIG_DIR / "gripper_config.yaml"
+BENCHMARK_PARAMS_PATH = CONFIG_DIR / "benchmark_params.yaml"
 CONTROL_TABLE_PATH = CONFIG_DIR / "xm430_control_table.yaml"
 # Written by the calibration wizard, not by hand. Absent until the first
 # calibration on a given set of fingers.
@@ -34,6 +35,9 @@ REPORT_DIR = PROJECT_ROOT / "benchmark_report"
 # ----------------------------------------------------------------------------
 with open(APP_CONFIG_PATH, "r", encoding="utf-8") as _handle:
     APP_CONFIG = yaml.safe_load(_handle)
+
+with open(BENCHMARK_PARAMS_PATH, "r", encoding="utf-8") as _handle:
+    BENCHMARK_PARAMS = yaml.safe_load(_handle)
 
 CONTROL_TABLE = load_control_table(CONTROL_TABLE_PATH)
 
@@ -61,7 +65,27 @@ CURRENT_MAX = APP_CONFIG["current"]["max"]
 VELOCITY_MIN = APP_CONFIG["velocity"]["min"]
 VELOCITY_MAX = APP_CONFIG["velocity"]["max"]
 
-BENCHMARK_PROFILE_VELOCITY = APP_CONFIG["benchmark"]["profile_velocity"]
+# ----------------------------------------------------------------------------
+# Benchmark experiment design
+#
+# The matrix and the sequence timings come from benchmark_params.yaml rather
+# than from constants in gripper_benchmark, so a campaign can be redefined
+# without editing code. matrix.py re-exports these under its own names, which
+# is what the rest of the benchmark imports.
+# ----------------------------------------------------------------------------
+_MATRIX = BENCHMARK_PARAMS["matrix"]
+FINGER_MATERIALS = list(_MATRIX["finger_materials"])
+PADDINGS = list(_MATRIX["paddings"])
+TEST_CURRENTS = list(_MATRIX["currents"])
+REPEATS = int(_MATRIX["repeats"])
+
+BENCHMARK_PROFILE_VELOCITY = BENCHMARK_PARAMS["motion"]["profile_velocity"]
+
+_TIMING = BENCHMARK_PARAMS["timing"]
+SCALE_DWELL = float(_TIMING["scale_dwell"])
+READOUT_INTERVAL = float(_TIMING["readout_interval"])
+ABORT_CHECK_INTERVAL = float(_TIMING["abort_check_interval"])
+MANUAL_POLL_MS = int(_TIMING["manual_poll_ms"])
 
 CALIBRATION = APP_CONFIG["calibration"]
 SLIP = APP_CONFIG["slip"]
