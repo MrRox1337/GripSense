@@ -3,11 +3,11 @@
 # GENERATED FILE - written by the calibration wizard in the benchmark GUI
 # (Scripts/gripper_benchmark.py). Do not edit by hand: re-run calibration
 # instead, which is required anyway whenever fingers are swapped.
-calibrated_at: '2026-08-31T15:07:02'
-max_open: 3422
-min_open: 501
-hard_close: 481
+calibrated_at: '2026-09-02T13:24:09'
+max_open: 3888
+min_open: 857
+hard_close: 837
 backoff_ticks: 20
 stop_current_raw: 109
-travel_ticks: 2921
-travel_deg: 256.73
+travel_ticks: 3031
+travel_deg: 266.4
