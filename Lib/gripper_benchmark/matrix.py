@@ -6,16 +6,21 @@ Two tests share the same matrix, and each is tracked separately:
   grip force      how hard the gripper squeezes, read off a kitchen scale
   slip detection  whether a loaded grip is detected slipping, and how quickly
 
-  4 finger materials x 4 paddings x 5 currents x 3 repeats = 240 readings each
+The matrix itself is not defined here: it is read from
+Config/benchmark_params.yaml so a campaign can be redefined without editing
+code, and re-exported under these names because they are what the rest of the
+benchmark imports.
 
-Nothing here touches hardware, files or UI, so the completion rules can be
-exercised directly in tests.
+The completion rules below take their rows as arguments and touch neither
+hardware nor UI, so they can still be exercised directly in tests.
 """
 
-FINGER_MATERIALS = ["PETG", "PLA", "ABS", "TPU"]
-PADDINGS = ["No padding", "Rubber band", "Eraser", "Sponge"]
-TEST_CURRENTS = [100, 105, 110, 115, 120]
-REPEATS = 3
+import gripper_settings as settings
+
+FINGER_MATERIALS = settings.FINGER_MATERIALS
+PADDINGS = settings.PADDINGS
+TEST_CURRENTS = settings.TEST_CURRENTS
+REPEATS = settings.REPEATS
 
 # The two tests, used as dict keys throughout the UI and storage.
 GRIP_FORCE = "grip_force"

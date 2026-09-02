@@ -16,11 +16,13 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
+import gripper_settings as settings
+
 from .motion import AbortedError
 
 # How often the blocked worker re-checks for an abort raised elsewhere, e.g.
 # by the emergency stop button.
-ABORT_CHECK_INTERVAL = 0.2
+ABORT_CHECK_INTERVAL = settings.ABORT_CHECK_INTERVAL
 
 
 class WorkerPrompt:

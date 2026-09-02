@@ -20,12 +20,14 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 
+import gripper_settings as settings
+
 from .matrix import TEST_CURRENTS, REPEATS
 from .motion import AbortedError, MotionBase
 
 # The watch loop reads present current as fast as the bus allows, so live UI
 # updates are throttled to something a Tk main loop can absorb.
-READOUT_INTERVAL = 0.1
+READOUT_INTERVAL = settings.READOUT_INTERVAL
 
 
 @dataclass

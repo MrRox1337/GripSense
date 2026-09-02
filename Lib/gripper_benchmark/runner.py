@@ -12,10 +12,12 @@ adds what happens once the fingers have closed.
 import time
 from datetime import datetime
 
+import gripper_settings as settings
+
 from .matrix import TEST_CURRENTS, REPEATS
 from .motion import AbortedError, MotionBase
 
-SCALE_DWELL = 1.0              # let the scale reading stabilise before asking
+SCALE_DWELL = settings.SCALE_DWELL   # let the scale reading stabilise first
 
 __all__ = ["AbortedError", "BenchmarkRunner", "SCALE_DWELL"]
 

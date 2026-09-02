@@ -18,7 +18,7 @@ import gripper_settings as settings
 from dynamixel_gripper import CalibrationAborted, GripperCalibrator
 
 # How often step 1 refreshes the by-hand position readout.
-MANUAL_POLL_MS = 200
+MANUAL_POLL_MS = settings.MANUAL_POLL_MS
 
 
 class CalibrationDialog:
