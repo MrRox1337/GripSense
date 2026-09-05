@@ -45,7 +45,9 @@ import threading
 import time
 from pathlib import Path
 
+from .calibration import GripperCalibrator
 from .config import (
+    DEFAULT_CALIBRATION,
     DEFAULT_CURRENT,
     DEFAULT_GRASP,
     DEFAULT_POSITION_UNIT_DEG,
@@ -53,6 +55,7 @@ from .config import (
     clamp01,
     load_yaml,
     resolve_limits,
+    save_limits,
     section,
 )
 from .gripper import DynamixelGripper, load_control_table
@@ -108,6 +111,12 @@ class GripperAPI(MotionBase):
         )
         self.calibrated = calibrated
 
+        # Kept for calibrate(), which is the only thing that needs it. Where
+        # from_config() loaded the limits from is remembered too, so a headless
+        # recalibration writes back to the file it read.
+        self.calibration_config = section(config, "calibration", DEFAULT_CALIBRATION)
+        self.limits_path = None
+
         super().__init__(gripper, max_open, min_open,
                          grasp["profile_velocity"],
                          on_status=on_status, on_readout=on_readout,
@@ -158,10 +167,12 @@ class GripperAPI(MotionBase):
         """
         Open the port, select current-based position control, return an API.
 
-        The only place this package touches the filesystem. `limits_path` may be
-        omitted or point at a file that does not exist yet, in which case the
-        nominal travel from the config is used until the fingers are calibrated;
-        check `.calibrated` to find out which you got.
+        The only place this package touches the filesystem, apart from
+        calibrate() writing back to `limits_path`. That path may be omitted or
+        point at a file that does not exist yet, in which case the nominal
+        travel from the config is used until the fingers are calibrated; check
+        `.calibrated` to find out which you got, and call calibrate() to
+        establish real ones.
         """
         config = load_yaml(config_path)
         control_table = load_control_table(control_table_path)
@@ -184,6 +195,9 @@ class GripperAPI(MotionBase):
             raise
 
         api._owns_gripper = True
+        # Remembered even when the file does not exist yet: that is exactly the
+        # uncalibrated case, and calibrate() should create it.
+        api.limits_path = limits_path
         return api
 
     # ------------------------------------------------------------------
@@ -290,6 +304,92 @@ class GripperAPI(MotionBase):
             raise RuntimeError(
                 "Torque is off, so the fingers will not move. Call enable(True) first."
             )
+
+    # ------------------------------------------------------------------
+    # Calibration
+    # ------------------------------------------------------------------
+    def calibrate(self, limits_path=None, max_open=None, save=True):
+        """
+        Establish this set of fingers' travel limits, headlessly.
+
+        Torque is dropped and WHEREVER THE FINGERS ALREADY ARE becomes MAX OPEN,
+        so open them by hand before calling - nothing here waits for an operator.
+        The gripper then closes under a current limit until it meets its
+        mechanical stop, backs off, and reopens.
+
+        On success the new limits are applied to this object immediately, so
+        open()/close()/set_position() use them without a reconnect, and are
+        written to `limits_path` (defaulting to the path from_config() read,
+        created if absent) unless save=False.
+
+        Pass `max_open` to skip the manual step entirely and declare it instead.
+
+        Raises CalibrationError if no stop was found - the fingers are left
+        reopened and the old limits untouched - or CalibrationAborted if the
+        abort event was set.
+        """
+        # The monitor reads the bus, and torque is about to go away underneath
+        # it; the probe owns the servo for the duration.
+        self._stop_monitor()
+        self._enabled = False
+        self._reset_grasp()
+        self._set_status(GripStatus.IDLE)
+
+        cfg = self.calibration_config
+        calibrator = GripperCalibrator(
+            self.gripper,
+            probe_current=cfg["probe_current"],
+            probe_velocity=cfg["probe_velocity"],
+            backoff_ticks=cfg["backoff_ticks"],
+            return_velocity=cfg.get("return_velocity"),
+            stall_current_fraction=cfg["stall_current_fraction"],
+            stall_stable_samples=cfg["stall_stable_samples"],
+            stall_position_tolerance=cfg["stall_position_tolerance"],
+            max_probe_ticks=cfg["max_probe_ticks"],
+            probe_timeout=cfg["probe_timeout"],
+            poll_interval=cfg["poll_interval"],
+            on_status=self._report,
+            on_readout=self.on_readout,
+            abort_event=self.abort_event,
+        )
+
+        if max_open is None:
+            calibrator.release_for_manual_positioning()
+            max_open = calibrator.capture_max_open()
+        else:
+            self.gripper.disable_torque()
+            calibrator.max_open = int(max_open)
+            self._report(f"MAX OPEN declared at {calibrator.max_open} ticks.")
+
+        try:
+            result = calibrator.probe_close_limit()
+        finally:
+            # The probe leaves the fingers reopened but still holding torque.
+            # Calibration is not a grip, so it should not end holding one.
+            try:
+                self.gripper.disable_torque()
+            except Exception:
+                pass
+            self._enabled = False
+
+        self.set_limits(result.max_open, result.min_open)
+        self.calibrated = True
+
+        path = limits_path if limits_path is not None else self.limits_path
+        if save and path is not None:
+            save_limits(path, result, self.position_unit_deg)
+            self._report(f"Limits written to {path}.")
+        elif save:
+            self._report(
+                "Calibrated, but no limits path is known, so nothing was "
+                "written. Pass limits_path= to save these limits."
+            )
+
+        self._report(
+            f"Calibrated: MAX OPEN {result.max_open}, MIN OPEN {result.min_open}, "
+            f"travel {result.travel_ticks} ticks."
+        )
+        return result
 
     # ------------------------------------------------------------------
     # Motion
