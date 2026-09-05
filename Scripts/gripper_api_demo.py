@@ -11,8 +11,10 @@ Anyone who wants the same control from their own code needs the Lib/
 dynamixel_gripper/ folder and nothing else.
 
 Usage:
-    python Scripts/gripper_api_demo.py           # grip test, needs an object
-    python Scripts/gripper_api_demo.py --miss    # close on nothing, expect "miss"
+    python Scripts/gripper_api_demo.py             # grip test, needs an object
+    python Scripts/gripper_api_demo.py --miss      # close on nothing, expect "miss"
+    python Scripts/gripper_api_demo.py --calibrate # find this set of fingers'
+                                                   # travel limits and save them
 """
 
 import sys
@@ -28,8 +30,27 @@ from dynamixel_gripper import GripperAPI
 CONFIG_DIR = PROJECT_ROOT / "Config"
 
 
+def calibrate(api):
+    """Find and save this set of fingers' travel limits, then stop."""
+    print("\nCALIBRATION")
+    print("  Open the fingers by hand NOW if you have not already - wherever")
+    print("  they are when torque drops becomes MAX OPEN.")
+    input("  Press Enter when the fingers are open... ")
+
+    result = api.calibrate()
+
+    print(f"\n  MAX OPEN    {result.max_open} ticks")
+    print(f"  Hard stop   {result.hard_close} ticks "
+          f"(at {result.stop_current_raw} raw)")
+    print(f"  MIN OPEN    {result.min_open} ticks "
+          f"(backed off {result.backoff_ticks})")
+    print(f"  Travel      {result.travel_ticks} ticks")
+    print("\n  Saved. Re-run without --calibrate to use these limits.")
+
+
 def main():
     miss_test = "--miss" in sys.argv
+    calibrate_only = "--calibrate" in sys.argv
 
     api = GripperAPI.from_config(
         CONFIG_DIR / "gripper_config.yaml",
@@ -40,10 +61,15 @@ def main():
     )
 
     with api:
+        if calibrate_only:
+            calibrate(api)
+            return
+
         if not api.calibrated:
             print(
                 "WARNING: no calibrated limits found, using the nominal travel from "
-                "gripper_config.yaml. Run the benchmark GUI's calibration wizard."
+                "gripper_config.yaml. Run this script with --calibrate, or use the "
+                "benchmark GUI's calibration wizard."
             )
         print(f"Travel: {api.min_open_position} .. {api.max_open_position} ticks")
 

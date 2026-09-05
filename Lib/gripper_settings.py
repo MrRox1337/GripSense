@@ -6,12 +6,11 @@ stays layout-agnostic, and scripts get their constants from here instead of
 each re-deriving them from YAML.
 """
 
-from datetime import datetime
 from pathlib import Path
 
 import yaml
 
-from dynamixel_gripper import DynamixelGripper, load_control_table
+from dynamixel_gripper import DynamixelGripper, load_control_table, config
 
 # ----------------------------------------------------------------------------
 # Layout
@@ -98,13 +97,11 @@ SLIP = APP_CONFIG["slip"]
 # by every script, so no position is hardcoded anywhere once a set of fingers
 # has been calibrated.
 # ----------------------------------------------------------------------------
-LIMITS_HEADER = (
-    "# Gripper travel limits in raw position ticks.\n"
-    "#\n"
-    "# GENERATED FILE - written by the calibration wizard in the benchmark GUI\n"
-    "# (Scripts/gripper_benchmark.py). Do not edit by hand: re-run calibration\n"
-    "# instead, which is required anyway whenever fingers are swapped.\n"
-)
+# The file's shape - header and field order - is decided in
+# dynamixel_gripper.config, so a limits file looks the same whether the wizard
+# or a headless GripperAPI.calibrate() wrote it. Re-exported for callers that
+# used to read it from here.
+LIMITS_HEADER = config.LIMITS_HEADER
 
 
 def load_limits():
@@ -119,21 +116,13 @@ def load_limits():
 
 
 def save_limits(result):
-    """Persist a CalibrationResult so later sessions inherit these limits."""
-    payload = {
-        "calibrated_at": datetime.now().isoformat(timespec="seconds"),
-        "max_open": int(result.max_open),
-        "min_open": int(result.min_open),
-        "hard_close": int(result.hard_close),
-        "backoff_ticks": int(result.backoff_ticks),
-        "stop_current_raw": int(result.stop_current_raw),
-        "travel_ticks": int(result.travel_ticks),
-        "travel_deg": round(result.travel_ticks * POSITION_UNIT_DEG, 2),
-    }
-    with open(LIMITS_PATH, "w", encoding="utf-8") as handle:
-        handle.write(LIMITS_HEADER)
-        yaml.safe_dump(payload, handle, sort_keys=False)
-    return payload
+    """
+    Persist a CalibrationResult so later sessions inherit these limits.
+
+    Supplies this repository's limits path and position scale to the package's
+    writer; the file format itself lives there.
+    """
+    return config.save_limits(LIMITS_PATH, result, POSITION_UNIT_DEG)
 
 
 def travel_limits():
