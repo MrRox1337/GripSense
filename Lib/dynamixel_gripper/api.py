@@ -1,5 +1,6 @@
 """
-A high-level gripper you can drive in five calls.
+A high-level dynamixel gripper driver that you can import in your own projects.
+Refer to the documentation to see how to use it.
 
 The register-level driver is deliberately dumb: it writes Goal Position and
 reads Present Current and has no idea what either means. This module is the
@@ -35,9 +36,6 @@ slipwatch.py.
 NAMING: this class's close() closes the FINGERS. The driver's close() closes the
 SERIAL PORT. Tear this object down with disconnect(), or use it as a context
 manager.
-
-Nothing here imports anything outside this package, so dynamixel_gripper/ can be
-lifted out of this repository and used on its own.
 """
 
 import dataclasses
@@ -163,7 +161,7 @@ class GripperAPI(MotionBase):
     # ------------------------------------------------------------------
     @classmethod
     def from_config(cls, config_path, control_table_path, limits_path=None,
-                    **kwargs):
+                    calibrate_if_missing=False, **kwargs):
         """
         Open the port, select current-based position control, return an API.
 
@@ -173,6 +171,16 @@ class GripperAPI(MotionBase):
         travel from the config is used until the fingers are calibrated; check
         `.calibrated` to find out which you got, and call calibrate() to
         establish real ones.
+
+        Pass calibrate_if_missing=True to do that immediately instead: if no
+        usable limits were found, this calibrates headlessly before returning -
+        which means dropping torque and taking WHATEVER POSITION THE FINGERS
+        ARE ALREADY AT as MAX OPEN, exactly as calibrate() always has. There is
+        no prompt here for the same reason calibrate() has none: make sure the
+        fingers are open by hand before construction, or this will read
+        wherever they happen to be as fully open. A failed probe raises
+        CalibrationError/CalibrationAborted straight through and the port is
+        closed rather than left connected but uncalibrated.
         """
         config = load_yaml(config_path)
         control_table = load_control_table(control_table_path)
@@ -190,14 +198,16 @@ class GripperAPI(MotionBase):
             gripper.set_operating_mode_current_based_position()
             api = cls(gripper, config=config, limits=limits,
                       control_table=control_table, **kwargs)
+            api._owns_gripper = True
+            # Remembered even when the file does not exist yet: that is
+            # exactly the uncalibrated case, and calibrate() should create it.
+            api.limits_path = limits_path
+            if calibrate_if_missing and not api.calibrated:
+                api.calibrate()
         except Exception:
             gripper.close()
             raise
 
-        api._owns_gripper = True
-        # Remembered even when the file does not exist yet: that is exactly the
-        # uncalibrated case, and calibrate() should create it.
-        api.limits_path = limits_path
         return api
 
     # ------------------------------------------------------------------
