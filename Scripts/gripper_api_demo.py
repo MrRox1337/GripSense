@@ -5,10 +5,10 @@ A worked example of dynamixel_gripper.GripperAPI, and the end-to-end check for
 it: open, close, adjust the grip strength while holding, and watch the status go
 from "ok" to "slip" when the object is pulled free.
 
-Note what is NOT here - no gripper_settings, no gripper_benchmark, no Tk. The
-only project-specific thing this script knows is where the three YAML files live.
-Anyone who wants the same control from their own code needs the Lib/
-dynamixel_gripper/ folder and nothing else.
+Note what is NOT here - no gripper_settings, no Tk, nothing from the rest of
+this repository. The only project-specific thing this script knows is where the
+three YAML files live. Anyone who wants the same control from their own code
+needs the Lib/dynamixel_gripper/ folder and nothing else.
 
 Usage:
     python Scripts/gripper_api_demo.py             # grip test, needs an object
@@ -67,9 +67,9 @@ def main():
 
         if not api.calibrated:
             print(
-                "WARNING: no calibrated limits found, using the nominal travel from "
-                "gripper_config.yaml. Run this script with --calibrate, or use the "
-                "benchmark GUI's calibration wizard."
+                "WARNING: no calibrated limits found, using the nominal travel "
+                "from gripper_config.yaml. Run this script with --calibrate to "
+                "measure this set of fingers."
             )
         print(f"Travel: {api.min_open_position} .. {api.max_open_position} ticks")
 

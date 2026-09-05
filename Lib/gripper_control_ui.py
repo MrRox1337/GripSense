@@ -89,8 +89,8 @@ class GripperApp:
                 pos_frame,
                 text=(
                     "These limits belong to whichever fingers were fitted when they were\n"
-                    "written into gripper_config.yaml. Run the calibration wizard in\n"
-                    "Scripts/gripper_benchmark.py before trusting the ends of this slider."
+                    "written into gripper_config.yaml. Run\n"
+                    "Scripts/gripper_api_demo.py --calibrate before trusting these ends."
                 ),
                 foreground="red",
                 justify="left",

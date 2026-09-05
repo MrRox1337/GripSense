@@ -19,24 +19,16 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = PROJECT_ROOT / "Config"
 
 APP_CONFIG_PATH = CONFIG_DIR / "gripper_config.yaml"
-BENCHMARK_PARAMS_PATH = CONFIG_DIR / "benchmark_params.yaml"
 CONTROL_TABLE_PATH = CONFIG_DIR / "xm430_control_table.yaml"
-# Written by the calibration wizard, not by hand. Absent until the first
+# Written by GripperAPI.calibrate(), not by hand. Absent until the first
 # calibration on a given set of fingers.
 LIMITS_PATH = CONFIG_DIR / "gripper_limits.yaml"
-
-RESULTS_CSV = PROJECT_ROOT / "benchmark_results.csv"
-SLIP_CSV = PROJECT_ROOT / "slip_results.csv"
-REPORT_DIR = PROJECT_ROOT / "benchmark_report"
 
 # ----------------------------------------------------------------------------
 # Loaded configuration
 # ----------------------------------------------------------------------------
 with open(APP_CONFIG_PATH, "r", encoding="utf-8") as _handle:
     APP_CONFIG = yaml.safe_load(_handle)
-
-with open(BENCHMARK_PARAMS_PATH, "r", encoding="utf-8") as _handle:
-    BENCHMARK_PARAMS = yaml.safe_load(_handle)
 
 CONTROL_TABLE = load_control_table(CONTROL_TABLE_PATH)
 
@@ -64,28 +56,6 @@ CURRENT_MAX = APP_CONFIG["current"]["max"]
 VELOCITY_MIN = APP_CONFIG["velocity"]["min"]
 VELOCITY_MAX = APP_CONFIG["velocity"]["max"]
 
-# ----------------------------------------------------------------------------
-# Benchmark experiment design
-#
-# The matrix and the sequence timings come from benchmark_params.yaml rather
-# than from constants in gripper_benchmark, so a campaign can be redefined
-# without editing code. matrix.py re-exports these under its own names, which
-# is what the rest of the benchmark imports.
-# ----------------------------------------------------------------------------
-_MATRIX = BENCHMARK_PARAMS["matrix"]
-FINGER_MATERIALS = list(_MATRIX["finger_materials"])
-PADDINGS = list(_MATRIX["paddings"])
-TEST_CURRENTS = list(_MATRIX["currents"])
-REPEATS = int(_MATRIX["repeats"])
-
-BENCHMARK_PROFILE_VELOCITY = BENCHMARK_PARAMS["motion"]["profile_velocity"]
-
-_TIMING = BENCHMARK_PARAMS["timing"]
-SCALE_DWELL = float(_TIMING["scale_dwell"])
-READOUT_INTERVAL = float(_TIMING["readout_interval"])
-ABORT_CHECK_INTERVAL = float(_TIMING["abort_check_interval"])
-MANUAL_POLL_MS = int(_TIMING["manual_poll_ms"])
-
 CALIBRATION = APP_CONFIG["calibration"]
 SLIP = APP_CONFIG["slip"]
 
@@ -93,14 +63,12 @@ SLIP = APP_CONFIG["slip"]
 # ----------------------------------------------------------------------------
 # Calibrated travel limits
 #
-# Written by the calibration wizard whenever fingers are swapped, and read back
-# by every script, so no position is hardcoded anywhere once a set of fingers
-# has been calibrated.
+# Re-measured whenever fingers are swapped, and read back by every script, so
+# no position is hardcoded anywhere once a set of fingers has been calibrated.
 # ----------------------------------------------------------------------------
 # The file's shape - header and field order - is decided in
-# dynamixel_gripper.config, so a limits file looks the same whether the wizard
-# or a headless GripperAPI.calibrate() wrote it. Re-exported for callers that
-# used to read it from here.
+# dynamixel_gripper.config, so a limits file looks the same whoever wrote it.
+# Re-exported for callers that used to read it from here.
 LIMITS_HEADER = config.LIMITS_HEADER
 
 
