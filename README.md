@@ -116,7 +116,7 @@ pickerbot_gripper/
 │       └── api.py                  GripperAPI: normalised commands, monitor
 │                                   thread, ok / slip / miss status
 ├── Scripts/
-│   ├── gripper_control_gui.py      Entry point: manual control
+│   ├── gripsense_teleop.py         Entry point: manual control
 │   └── gripper_api_demo.py         Entry point: scripted control via GripperAPI
 ├── requirements.txt
 └── README.md
@@ -155,7 +155,7 @@ outside this project.
 ```mermaid
 flowchart TB
     subgraph SCRIPTS["Scripts/ - entry points"]
-        CTRL["gripper_control_gui.py"]
+        CTRL["gripsense_teleop.py"]
         DEMO["gripper_api_demo.py"]
     end
 
@@ -497,7 +497,7 @@ api = GripperAPI.from_config(config, control_table, limits,
 ### Manual control GUI
 
 ```powershell
-python Scripts\gripper_control_gui.py
+python Scripts\gripsense_teleop.py
 ```
 
 Three sliders and a live readout. If the fingers have not been calibrated, the

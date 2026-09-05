@@ -10,7 +10,7 @@ Provides three sliders:
 Plain Python + Tkinter (stdlib) + dynamixel-sdk. No ROS2.
 
 Usage:
-    python Scripts/gripper_control_gui.py
+    python Scripts/gripsense_teleop.py
 """
 
 import sys
