@@ -100,6 +100,11 @@ pickerbot_gripper/
 │   ├── gripper_settings.py         Resolves config paths and calibrated limits;
 │   │                               the only module that knows THIS layout
 │   ├── gripper_control_ui.py       Tk app for the manual control GUI
+│   ├── calibration_dialog.py       Tk wizard over GripperCalibrator: MAX OPEN
+│   │                               by hand, then the automatic closing probe
+│   ├── gripper_demo_ui.py          Tk app for the API demo — status tests and
+│   │                               normalised control, over GripperAPI alone
+│   ├── gripper_demo_report.py      The demo's CSV and accuracy matrix
 │   └── dynamixel_gripper/          Self-contained servo package: imports nothing
 │       │                           from the rest of this repository
 │       ├── __init__.py
@@ -116,8 +121,8 @@ pickerbot_gripper/
 │       └── api.py                  GripperAPI: normalised commands, monitor
 │                                   thread, ok / slip / miss status
 ├── Scripts/
-│   ├── gripsense_teleop.py         Entry point: manual control
-│   └── gripper_api_demo.py         Entry point: scripted control via GripperAPI
+│   ├── gripsense_teleop.py         Entry point: manual control and calibration
+│   └── gripper_api_demo.py         Entry point: the GripperAPI demo GUI
 ├── requirements.txt
 └── README.md
 ```
@@ -126,6 +131,8 @@ Generated at runtime (not present on a fresh clone):
 
 ```
 Config/gripper_limits.yaml  Calibrated max/min open, rewritten per calibration
+Demo/grip_status_*.csv      One row per staged grip from a demo test run
+Demo/grip_status_*.jpg      Expected-vs-reported accuracy matrix for those runs
 ```
 
 > **Note on directory names:** `Lib/` and `Scripts/` are also the directory
@@ -161,6 +168,8 @@ flowchart TB
 
     subgraph TK["Lib/ - Tk layer: widgets and threads"]
         CONTROLUI["gripper_control_ui.py<br/>sliders + poll thread"]
+        CALIBUI["calibration_dialog.py<br/>two-step wizard"]
+        DEMOUI["gripper_demo_ui.py<br/>API demo + status tests"]
     end
 
     subgraph PKG["Lib/dynamixel_gripper - standalone package"]
@@ -173,7 +182,10 @@ flowchart TB
     HW(["Dynamixel XM430-W210-T<br/>U2D2 - Protocol 2.0 - 1 Mbaud"])
 
     CTRL --> CONTROLUI
-    DEMO --> API
+    DEMO --> DEMOUI
+    DEMOUI --> API
+    CONTROLUI -- "Calibrate..." --> CALIBUI
+    CALIBUI --> CALIB
     API -- "inherits" --> MOTION
     API -- "calibrate()" --> CALIB
     MOTION --> DRIVER
@@ -425,20 +437,25 @@ port:
 
 **5. Calibrate the fingers**
 
-Nothing can be driven safely until the travel limits are known. Open the
-fingers by hand, then:
+Nothing can be driven safely until the travel limits are known.
 
 ```powershell
-python Scripts\gripper_api_demo.py --calibrate
+python Scripts\gripsense_teleop.py
 ```
+
+Press **Calibrate...**, open the fingers by hand to where the open limit should
+be, and confirm; the closing probe finds the other end on its own. The limits
+are saved to `Config/gripper_limits.yaml` and the sliders pick them up without
+a restart.
 
 **6. Verify the installation**
 
 ```powershell
-python Scripts\gripper_api_demo.py --miss
+python Scripts\gripper_api_demo.py
 ```
 
-The gripper should close on nothing and report `miss`.
+Press **Connect**, then **Enable torque**, then run a `miss` test with the
+fingers clear: the gripper should close on nothing and report `miss`.
 
 ---
 
