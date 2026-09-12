@@ -12,7 +12,9 @@ Three panels, three jobs:
   initialisation  the paths handed to from_config(), the port they name, and
                   the calibrated limits that came back - including when they
                   were measured, since limits belong to the fingers that were
-                  fitted at the time
+                  fitted at the time. Calibrate... measures a new set through
+                  the API's own headless calibrate(), so the demo needs no
+                  wizard of its own
   control         torque, a one-shot grip, and the two normalised sliders, with
                   the API's status mirrored as a colour
   status tests    close on an object, on nothing, and on an object that is then
@@ -157,13 +159,21 @@ class DemoApp:
         )
         row += 1
 
-        self.connect_button = ttk.Button(panel, text="Connect", command=self._toggle_connection)
-        self.connect_button.grid(row=row, column=0, sticky="w", padx=8, pady=(6, 8))
+        actions = ttk.Frame(panel)
+        actions.grid(row=row, column=0, columnspan=2, sticky="w", padx=8, pady=(6, 8))
+
+        self.connect_button = ttk.Button(
+            actions, text="Connect", command=self._toggle_connection
+        )
+        self.connect_button.grid(row=0, column=0, padx=(0, 8))
+
+        self.calibrate_button = ttk.Button(
+            actions, text="Calibrate...", command=self._start_calibration
+        )
+        self.calibrate_button.grid(row=0, column=1, padx=(0, 16))
 
         self.connection_var = tk.StringVar(value="Disconnected.")
-        ttk.Label(panel, textvariable=self.connection_var).grid(
-            row=row, column=1, sticky="w", padx=8, pady=(6, 8)
-        )
+        ttk.Label(actions, textvariable=self.connection_var).grid(row=0, column=2)
 
     def _build_control_panel(self, parent, pad):
         panel = ttk.LabelFrame(parent, text="Control")
@@ -212,13 +222,16 @@ class DemoApp:
         )
 
     def _slider(self, panel, row, variable, label, command):
-        ttk.Label(panel, textvariable=label, width=30).grid(
+        ttk.Label(panel, textvariable=label, width=34).grid(
             row=row, column=0, columnspan=2, sticky="w", padx=8, pady=2
         )
         scale = ttk.Scale(
             panel, from_=0.0, to=1.0, orient="horizontal", length=360,
             variable=variable, command=command,
         )
+        # The write throttle can swallow the last event of a drag, which is the
+        # one that matters: the value the operator let go on.
+        scale.bind("<ButtonRelease-1>", lambda _event: command(variable.get(), force=True))
         scale.grid(row=row, column=2, sticky="ew", padx=8, pady=2)
         return scale
 
@@ -316,12 +329,26 @@ class DemoApp:
             messagebox.showerror("Connection error", str(exc))
             self.api = None
             return
+        self._after_connect()
 
+    def _after_connect(self):
+        """Catch the window up with the API that just came back."""
         self.connection_var.set("Connected.")
         self._show_limits()
-        self.strength_var.set(self.api.grip_strength)
-        self.strength_label.set(f"Grip strength {self.api.grip_strength:.2f}")
         self._log(f"Connected on {self._port_summary()}")
+
+        if not self.api.calibrated:
+            # Nothing measured for these fingers, so there is no informed grip
+            # strength to inherit either: start at the middle of the current
+            # range the config allows and say so.
+            self.api.set_grip_strength(0.5)
+            self._log(
+                f"No calibrated limits. Grip strength starts halfway between "
+                f"current min {self.api.current_min} and max {self.api.current_max} "
+                f"= {self.api.grip_current_raw} raw. Calibrate before trusting the ends."
+            )
+        self.strength_var.set(self.api.grip_strength)
+        self._set_strength_label(self.api.grip_strength, self.api.grip_current_raw)
 
     def _disconnect(self):
         try:
@@ -373,13 +400,13 @@ class DemoApp:
             messagebox.showerror("Torque error", str(exc))
         self._refresh_controls()
 
-    def _on_position(self, raw):
+    def _on_position(self, raw, force=False):
         fraction = float(raw)
         self.position_label.set(f"Position {fraction:.2f}")
         if not self._commandable():
             return
         now = time.monotonic()
-        if now - self._last_position_send < SLIDER_INTERVAL:
+        if not force and now - self._last_position_send < SLIDER_INTERVAL:
             return
         self._last_position_send = now
         try:
@@ -389,20 +416,35 @@ class DemoApp:
         except Exception as exc:
             self._log(f"set_position failed: {exc}")
 
-    def _on_strength(self, raw):
+    def _on_strength(self, raw, force=False):
         fraction = float(raw)
-        self.strength_label.set(f"Grip strength {fraction:.2f}")
+        self._set_strength_label(fraction)
         if self.api is None or self.busy:
             return
         now = time.monotonic()
-        if now - self._last_strength_send < SLIDER_INTERVAL:
+        if not force and now - self._last_strength_send < SLIDER_INTERVAL:
             return
         self._last_strength_send = now
         try:
-            raw_current = self.api.set_grip_strength(fraction)
-            self.strength_label.set(f"Grip strength {fraction:.2f} ({raw_current} raw)")
+            self._set_strength_label(fraction, self.api.set_grip_strength(fraction))
         except Exception as exc:
             self._log(f"set_grip_strength failed: {exc}")
+
+    def _set_strength_label(self, fraction, raw_current=None):
+        suffix = "" if raw_current is None else f" = {raw_current} raw"
+        self.strength_label.set(f"Grip strength {fraction:.2f}{suffix}")
+
+    def _apply_slider_strength(self):
+        """
+        Squeeze at whatever the slider says, for every grip the demo commands.
+
+        Without this a run would use the last value the drag throttle happened
+        to let through, which is not necessarily where the slider ended up.
+        """
+        fraction = float(self.strength_var.get())
+        raw_current = self.api.set_grip_strength(fraction)
+        self.root.after(0, self._set_strength_label, fraction, raw_current)
+        self._log_threadsafe(f"Grip strength {fraction:.2f} = {raw_current} raw")
 
     def _commandable(self):
         return self.api is not None and self.api.enabled and not self.busy
@@ -501,6 +543,9 @@ class DemoApp:
             text="Disable torque" if enabled else "Enable torque",
             state="normal" if idle else "disabled",
         )
+        # Calibration drops torque itself, so it does not care whether torque
+        # is on - only that nothing else is driving the servo.
+        self.calibrate_button.config(state="normal" if idle else "disabled")
         self.grip_button.config(state="normal" if idle and enabled else "disabled")
         self.position_scale.config(state="normal" if idle and enabled else "disabled")
         self.strength_scale.config(state="normal" if idle else "disabled")
@@ -511,12 +556,43 @@ class DemoApp:
         self.ready_button.config(state="normal" if self.waiting_ready else "disabled")
 
     # ------------------------------------------------------------------
+    # Calibration
+    # ------------------------------------------------------------------
+    def _start_calibration(self):
+        if not messagebox.askokcancel(
+            "Calibrate travel limits",
+            "Torque will drop, and WHEREVER THE FINGERS ARE becomes MAX OPEN.\n\n"
+            "Open them by hand first - nothing here waits for you once this "
+            "starts. The gripper then closes under a current limit until it "
+            "meets its stop, backs off, and reopens.\n\n"
+            "Keep hands and the workpiece clear.",
+        ):
+            return
+        self._start_worker(self._calibration_worker)
+
+    def _calibration_worker(self):
+        result = self.api.calibrate()
+        self._log_threadsafe(
+            f"Calibrated: max open {result.max_open}, min open {result.min_open}, "
+            f"travel {result.travel_ticks} ticks"
+        )
+        self.root.after(0, self._after_calibration)
+
+    def _after_calibration(self):
+        """New limits are live on the API already; catch the window up."""
+        self._show_limits()
+        self.position_var.set(1.0)
+        self.position_label.set("Position 1.00")
+        self._refresh_controls()
+
+    # ------------------------------------------------------------------
     # The one-shot grip test
     # ------------------------------------------------------------------
     def _start_grip_test(self):
         self._start_worker(self._grip_test_worker)
 
     def _grip_test_worker(self):
+        self._apply_slider_strength()
         self._log_threadsafe("Closing...")
         verdict = self.api.close()
         self._log_threadsafe(f"close() -> {verdict}")
@@ -540,6 +616,7 @@ class DemoApp:
 
     def _status_test_worker(self, expected, count):
         self._log_threadsafe(f"--- {expected} test, {count} trials ---")
+        self._apply_slider_strength()
         completed = 0
 
         for number in range(1, count + 1):
