@@ -4,6 +4,11 @@ Tk front end for manual gripper control.
 Three sliders (position, goal current, profile velocity) plus a live readout
 polled from the servo on a background thread. All hardware access goes
 through the DynamixelGripper returned by gripper_settings.connect().
+
+Calibration is available from here too, through the same CalibrationDialog
+wizard: torque off, MAX OPEN set by hand, then an automatic closing probe.
+On success the position slider is reconfigured live to the new limits - no
+restart needed to drive them.
 """
 
 import threading
@@ -12,16 +17,11 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 import gripper_settings as settings
+from calibration_dialog import CalibrationDialog
 
 POSITION_UNIT_DEG = settings.POSITION_UNIT_DEG
 CURRENT_UNIT_MA = settings.CURRENT_UNIT_MA
 VELOCITY_UNIT_REV = settings.VELOCITY_UNIT_REV
-
-# Slider bounds come from the last calibration, so the position slider spans
-# the travel of the fingers actually fitted. Falls back to the nominal values
-# in gripper_config.yaml if the fingers have never been calibrated, which the
-# UI says out loud rather than pretending the range is trustworthy.
-MAX_OPEN_POSITION, MIN_OPEN_POSITION, LIMITS_CALIBRATED = settings.travel_limits()
 
 CURRENT_MIN = settings.CURRENT_MIN
 CURRENT_MAX = settings.CURRENT_MAX
@@ -44,6 +44,17 @@ class GripperApp:
         self.torque_enabled = False
         self._last_send_time = 0.0
         self._poll_thread_stop = threading.Event()
+
+        # Slider bounds come from the last calibration, so the position
+        # slider spans the travel of the fingers actually fitted. Falls back
+        # to the nominal values in gripper_config.yaml if the fingers have
+        # never been calibrated, which the UI says out loud rather than
+        # pretending the range is trustworthy. Instance state, not a module
+        # constant, because a calibration run from this window replaces it
+        # without a restart.
+        self.max_open_position, self.min_open_position, self.limits_calibrated = (
+            settings.travel_limits()
+        )
 
         self._build_ui()
         self._connect_hardware()
@@ -74,33 +85,30 @@ class GripperApp:
         )
 
         # --- Position slider ---
-        source = "calibrated" if LIMITS_CALIBRATED else "NOT CALIBRATED - nominal fallback"
-        pos_frame = ttk.LabelFrame(
-            frame,
-            text=(
-                f"Position: {MAX_OPEN_POSITION} (max open) -> {MIN_OPEN_POSITION} "
-                f"(min open)  [{source}]"
-            ),
-        )
-        pos_frame.grid(row=1, column=0, columnspan=2, sticky="ew", **pad)
+        self.pos_frame = ttk.LabelFrame(frame, text=self._position_frame_title())
+        self.pos_frame.grid(row=1, column=0, columnspan=2, sticky="ew", **pad)
 
-        if not LIMITS_CALIBRATED:
-            ttk.Label(
-                pos_frame,
+        self.limits_warning_label = None
+        if not self.limits_calibrated:
+            self.limits_warning_label = ttk.Label(
+                self.pos_frame,
                 text=(
                     "These limits belong to whichever fingers were fitted when they were\n"
-                    "written into gripper_config.yaml. Run\n"
-                    "Scripts/gripper_api_demo.py --calibrate before trusting these ends."
+                    "written into gripper_config.yaml. Calibrate below before trusting\n"
+                    "these ends."
                 ),
                 foreground="red",
                 justify="left",
-            ).grid(row=2, column=0, columnspan=3, padx=8, pady=(0, 6), sticky="w")
+            )
+            self.limits_warning_label.grid(
+                row=2, column=0, columnspan=3, padx=8, pady=(0, 6), sticky="w"
+            )
 
-        self.position_var = tk.IntVar(value=MAX_OPEN_POSITION)
+        self.position_var = tk.IntVar(value=self.max_open_position)
         self.position_slider = ttk.Scale(
-            pos_frame,
-            from_=MAX_OPEN_POSITION,
-            to=MIN_OPEN_POSITION,
+            self.pos_frame,
+            from_=self.max_open_position,
+            to=self.min_open_position,
             orient="horizontal",
             length=400,
             variable=self.position_var,
@@ -109,10 +117,15 @@ class GripperApp:
         self.position_slider.grid(row=0, column=0, columnspan=3, sticky="ew", padx=8, pady=4)
 
         self.position_label_var = tk.StringVar()
-        ttk.Label(pos_frame, textvariable=self.position_label_var).grid(
+        ttk.Label(self.pos_frame, textvariable=self.position_label_var).grid(
             row=1, column=0, columnspan=3, padx=8
         )
-        self._update_position_label(MAX_OPEN_POSITION)
+        self._update_position_label(self.max_open_position)
+
+        self.calibrate_button = ttk.Button(
+            self.pos_frame, text="Calibrate...", command=self._open_calibration_dialog
+        )
+        self.calibrate_button.grid(row=3, column=0, padx=8, pady=(0, 8), sticky="w")
 
         # --- Current slider ---
         cur_frame = ttk.LabelFrame(
@@ -192,7 +205,7 @@ class GripperApp:
             self.gripper.set_profile_velocity(VELOCITY_MAX)
             # Prime Goal Position so the first torque-enable drives to
             # max-open rather than to whatever stale goal the servo held.
-            self.gripper.set_goal_position(MAX_OPEN_POSITION)
+            self.gripper.set_goal_position(self.max_open_position)
         except Exception as exc:
             messagebox.showerror("Connection error", str(exc))
             self.root.destroy()
@@ -205,14 +218,10 @@ class GripperApp:
         try:
             if self.torque_enabled:
                 self.gripper.disable_torque()
-                self.torque_enabled = False
-                self.torque_button.config(text="Enable Torque")
-                self.torque_status_var.set("Torque: DISABLED")
+                self._set_torque_ui(False)
             else:
                 self.gripper.enable_torque()
-                self.torque_enabled = True
-                self.torque_button.config(text="Disable Torque")
-                self.torque_status_var.set("Torque: ENABLED")
+                self._set_torque_ui(True)
         except Exception as exc:
             messagebox.showerror("Torque error", str(exc))
 
@@ -222,9 +231,53 @@ class GripperApp:
         except Exception as exc:
             messagebox.showerror("Emergency stop error", str(exc))
         finally:
-            self.torque_enabled = False
-            self.torque_button.config(text="Enable Torque")
-            self.torque_status_var.set("Torque: DISABLED")
+            self._set_torque_ui(False)
+
+    # ------------------------------------------------------------------
+    # Calibration
+    # ------------------------------------------------------------------
+    def _position_frame_title(self):
+        source = "calibrated" if self.limits_calibrated else "NOT CALIBRATED - nominal fallback"
+        return (
+            f"Position: {self.max_open_position} (max open) -> "
+            f"{self.min_open_position} (min open)  [{source}]"
+        )
+
+    def _open_calibration_dialog(self):
+        # The dialog drops torque itself (release_for_manual_positioning), so
+        # the main window's torque state is brought in line immediately
+        # rather than going stale while the modal wizard is up.
+        self._set_torque_ui(False)
+        CalibrationDialog(self.root, self.gripper, on_saved=self._apply_new_limits)
+
+    def _apply_new_limits(self, limits):
+        """Called once the wizard's Save button has written new limits."""
+        self.max_open_position = int(limits["max_open"])
+        self.min_open_position = int(limits["min_open"])
+        self.limits_calibrated = True
+
+        self.pos_frame.config(text=self._position_frame_title())
+        if self.limits_warning_label is not None:
+            self.limits_warning_label.grid_remove()
+            self.limits_warning_label = None
+
+        self.position_slider.config(from_=self.max_open_position, to=self.min_open_position)
+        self.position_var.set(self.max_open_position)
+        self._update_position_label(self.max_open_position)
+
+        # The probe leaves the fingers physically at MAX OPEN with torque
+        # off. Priming Goal Position to match now means the next Enable
+        # Torque drives to where the fingers already are rather than
+        # snapping toward whatever goal was set before calibration.
+        try:
+            self.gripper.set_goal_position(self.max_open_position)
+        except Exception as exc:
+            messagebox.showerror("Post-calibration error", str(exc))
+
+    def _set_torque_ui(self, enabled):
+        self.torque_enabled = enabled
+        self.torque_button.config(text="Disable Torque" if enabled else "Enable Torque")
+        self.torque_status_var.set(f"Torque: {'ENABLED' if enabled else 'DISABLED'}")
 
     # ------------------------------------------------------------------
     # Slider callbacks
