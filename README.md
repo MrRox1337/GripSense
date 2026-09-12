@@ -60,14 +60,24 @@ The status is maintained by a background monitor thread, so reading it costs
 neither a round trip nor a block. What the five values mean, and why `slip`
 latches, is in [The grasp decision](#the-grasp-decision).
 
-`Lib/dynamixel_gripper/` imports nothing from the rest of this repository — no
-`gripper_settings`, no Tkinter. The folder can be copied out on its own,
-dropped next to your own three YAML files, and used elsewhere:
+`Lib/dynamixel_gripper/` imports nothing from the rest of this repository. The
+folder can be copied out on its own, dropped next to your own three YAML files,
+and used elsewhere:
 
 ```bash
-grep -rn "gripper_settings\|gripper_control_ui" Lib/dynamixel_gripper/
-# returns nothing
+grep -rn "^import \|^from " Lib/dynamixel_gripper/*.py | grep -v "from \."
+# only the standard library, yaml and dynamixel_sdk
 ```
+
+That includes the manual control console, so a project that depends on the
+package gets the sliders too, on the same object it already has:
+
+```python
+api.teleop()      # blocks until the window is closed; the API is fine after
+```
+
+Tkinter is imported when `teleop()` is called rather than when the package is
+imported, so a machine without it still gets everything else.
 
 ### Travel-limit calibration
 
@@ -97,11 +107,6 @@ pickerbot_gripper/
 │   │                               classification
 │   └── xm430_control_table.yaml    Register addresses + unit conversion scales
 ├── Lib/
-│   ├── gripper_settings.py         Resolves config paths and calibrated limits;
-│   │                               the only module that knows THIS layout
-│   ├── gripper_control_ui.py       Tk app for the manual control GUI
-│   ├── calibration_dialog.py       Tk wizard over GripperCalibrator: MAX OPEN
-│   │                               by hand, then the automatic closing probe
 │   ├── gripper_demo_ui.py          Tk app for the API demo — status tests and
 │   │                               normalised control, over GripperAPI alone
 │   ├── gripper_demo_report.py      The demo's CSVs, accuracy matrix and
@@ -119,8 +124,12 @@ pickerbot_gripper/
 │       ├── slipwatch.py            The slip rule as arithmetic over current
 │       │                           samples — no I/O, so it can be exercised
 │       │                           on a list of numbers
-│       └── api.py                  GripperAPI: normalised commands, monitor
-│                                   thread, ok / slip / miss status
+│       ├── api.py                  GripperAPI: normalised commands, monitor
+│       │                           thread, ok / slip / miss status, teleop()
+│       ├── teleop.py               The manual control console: three raw
+│       │                           sliders and a live readout, over an API
+│       └── calibration_dialog.py   Tk wizard over calibrate(): MAX OPEN by
+│                                   hand, then the automatic closing probe
 ├── Scripts/
 │   ├── gripsense_teleop.py         Entry point: manual control and calibration
 │   └── gripper_api_demo.py         Entry point: the GripperAPI demo GUI
@@ -147,18 +156,17 @@ Demo/opening_*.jpg          Measured against expected opening, for those sweeps
 
 ## Software architecture
 
-The codebase is layered so that **nothing which talks to hardware knows
-anything about Tkinter**, and only one module knows where files live. That is
-what makes the control logic testable without a servo and the driver reusable
-outside this project.
+The codebase is layered so that **no module which decides anything about a grasp
+knows about Tkinter**, and **no module inside the package knows where files
+live**. That is what makes the control logic testable without a servo and the
+driver reusable outside this project.
 
-| Layer              | Rule it obeys                                                                                                                                                                     |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Entry points       | Put `Lib/` on `sys.path`, then hand off to the GUI or the API. No logic of their own.                                                                                             |
-| Tk layer           | Owns widgets and threads. Only the manual GUI's sliders command the servo directly, and each slider is a single register write.                                                    |
-| API layer          | Commands in normalised units, a background monitor thread, and the `ok` / `slip` / `miss` verdict. No UI, and no knowledge of any particular repository layout — paths arrive from the caller. |
-| `gripper_settings` | The only module that knows **this** repository's layout. `dynamixel_gripper` is given its paths instead, which is what lets it ship on its own.                                    |
-| Driver             | Register reads and writes, serialised behind a lock.                                                                                                                              |
+| Layer        | Rule it obeys                                                                                                                                                                     |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Entry points | Say where the three YAML files are, then hand off to the API. They are the only thing that knows **this** repository's layout, and they hold no logic of their own.                |
+| Tk layer     | Owns widgets and threads, and nothing else. The console's sliders command the servo directly, one register write each; every other window goes through the API.                    |
+| API layer    | Commands in normalised units, a background monitor thread, and the `ok` / `slip` / `miss` verdict. Imports no UI — `teleop()` reaches for Tk only when it is called.               |
+| Driver       | Register reads and writes, serialised behind a lock.                                                                                                                              |
 
 ### Control flow: who drives whom
 
@@ -170,13 +178,13 @@ flowchart TB
     end
 
     subgraph TK["Lib/ - Tk layer: widgets and threads"]
-        CONTROLUI["gripper_control_ui.py<br/>sliders + poll thread"]
-        CALIBUI["calibration_dialog.py<br/>two-step wizard"]
         DEMOUI["gripper_demo_ui.py<br/>API demo + status tests"]
     end
 
     subgraph PKG["Lib/dynamixel_gripper - standalone package"]
         API["api.py<br/>GripperAPI + monitor thread"]
+        TELEOP["teleop.py<br/>sliders + poll thread"]
+        CALIBUI["calibration_dialog.py<br/>two-step wizard"]
         CALIB["calibration.py<br/>travel-limit discovery"]
         MOTION["motion.py<br/>open / close / settle<br/>shared base class"]
         DRIVER["gripper.py<br/>register access behind an RLock"]
@@ -184,22 +192,24 @@ flowchart TB
 
     HW(["Dynamixel XM430-W210-T<br/>U2D2 - Protocol 2.0 - 1 Mbaud"])
 
-    CTRL --> CONTROLUI
+    CTRL --> API
     DEMO --> DEMOUI
     DEMOUI --> API
-    CONTROLUI -- "Calibrate..." --> CALIBUI
-    CALIBUI --> CALIB
+    API -- "teleop()" --> TELEOP
+    TELEOP -- "Calibrate..." --> CALIBUI
+    CALIBUI -- "calibrate(max_open=)" --> API
     API -- "inherits" --> MOTION
     API -- "calibrate()" --> CALIB
     MOTION --> DRIVER
     CALIB --> DRIVER
-    CONTROLUI --> DRIVER
+    TELEOP --> DRIVER
     DRIVER --> HW
 ```
 
 Note where the package boundary falls. Everything inside `dynamixel_gripper`
-points inward, so the box is a complete gripper on its own; the GUI is a
-consumer of it, not part of it.
+points inward, so the box is a complete gripper on its own — console included,
+which is why `api.teleop()` works for anyone who installs it. The demo window
+is a consumer of that box, not part of it.
 
 ### Data flow: configuration in, commands out
 
@@ -209,26 +219,25 @@ flowchart LR
     CTABLE["xm430_control_table.yaml<br/>registers + unit scales"]
     LIMITS["gripper_limits.yaml<br/>calibrated travel"]
 
-    SETTINGS["gripper_settings.py<br/>resolves THIS layout"]
-    UI["gripper_control_ui.py"]
+    ENTRY["Scripts/*.py<br/>knows THIS layout"]
     API["GripperAPI"]
+    TELEOP["teleop console"]
     SERVO(["Servo"])
 
-    CFG --> SETTINGS
-    CTABLE --> SETTINGS
-    LIMITS --> SETTINGS
-    SETTINGS --> UI --> SERVO
+    CFG --> ENTRY
+    CTABLE --> ENTRY
+    LIMITS --> ENTRY
+    ENTRY -->|"paths passed in"| API
 
-    CFG -.->|"paths passed directly"| API
-    CTABLE -.-> API
-    LIMITS -.-> API
     API --> SERVO
+    API -->|"teleop()"| TELEOP --> SERVO
     API -.->|"calibrate() rewrites"| LIMITS
 ```
 
-The dashed edges are the point: the API is handed paths by its caller rather
-than resolving them through `gripper_settings`, which is what lets the package
-ship without this repository around it.
+The entry point is the only thing that knows where the files are. Everything
+downstream of it is handed paths, which is what lets the package ship without
+this repository around it — and why the console it opens needs no config of its
+own, only the API it was given.
 
 ### Calibration
 
@@ -523,6 +532,23 @@ python Scripts\gripsense_teleop.py
 Three sliders and a live readout. If the fingers have not been calibrated, the
 position slider's ends are flagged in red — they are the nominal travel from
 `gripper_config.yaml`, not this set of fingers.
+
+The console belongs to the package, not to this repository, so it opens on any
+`GripperAPI` — including in the middle of a script, when a person needs to park
+the fingers by hand before the program carries on:
+
+```python
+with GripperAPI.from_config(config, control_table, limits) as api:
+    api.teleop()          # blocks until the operator closes the window
+
+    # Still connected, still usable. The console dropped torque on its way
+    # out, so enable again before commanding anything.
+    api.enable(True)
+    api.close()
+```
+
+It takes the servo over while it is up — torque off, monitor stopped — and
+hands it back the same way, so nothing the API was tracking survives across it.
 
 ### Driving the registers directly
 

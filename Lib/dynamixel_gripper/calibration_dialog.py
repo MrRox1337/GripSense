@@ -1,58 +1,45 @@
 """
-The calibration wizard: a modal front end for GripperCalibrator.
+The calibration wizard: an operator front end for GripperAPI.calibrate().
 
-Run whenever fingers are loaded or unloaded. Step 1 lives on the Tk main
-loop (torque is off, so all it does is poll the position the operator is
-moving by hand); step 2 runs on a worker thread because the closing probe
-blocks for seconds at a time.
+Run whenever fingers are loaded or unloaded. Step 1 lives on the Tk main loop -
+torque is off, so all it does is poll the position the operator is moving by
+hand. Step 2 hands that position to calibrate(), which owns the closing probe,
+on a worker thread because it blocks for seconds at a time.
 
-Nothing is written to disk until the operator accepts the result, so a probe
-that finds the wrong stop can simply be discarded and repeated.
+Nothing is written to disk until the operator accepts the result: the probe runs
+with save=False, so a probe that finds the wrong stop can be discarded and
+repeated. The measured limits are live on the API either way - calibrate()
+applies them as soon as it has them, which is what a caller wants even if the
+operator decides not to keep them for next session.
+
+Tkinter is imported here rather than in api.py, so the package still imports on
+a machine without it.
 """
 
 import threading
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox, ttk
 
-import gripper_settings as settings
-from dynamixel_gripper import CalibrationAborted, GripperCalibrator
+from .config import save_limits
+
+__all__ = ["CalibrationDialog"]
 
 # How often step 1 refreshes the by-hand position readout. A UI refresh rate,
-# not an experiment parameter, so it stays a local constant rather than
-# something read from configuration.
+# not an experiment parameter, so it stays a local constant.
 MANUAL_POLL_MS = 200
 
 
 class CalibrationDialog:
     """Modal two-step wizard. Calls on_saved(limits_dict) if limits are kept."""
 
-    def __init__(self, root, gripper, on_saved=None):
-        self.root = root
-        self.gripper = gripper
+    def __init__(self, master, api, on_saved=None):
+        self.master = master
+        self.api = api
         self.on_saved = on_saved or (lambda limits: None)
 
-        self.abort_event = threading.Event()
         self.stage = "manual"
         self.result = None
         self._poll_job = None
-
-        config = settings.CALIBRATION
-        self.calibrator = GripperCalibrator(
-            gripper,
-            probe_current=config["probe_current"],
-            probe_velocity=config["probe_velocity"],
-            backoff_ticks=config["backoff_ticks"],
-            return_velocity=config["return_velocity"],
-            stall_current_fraction=config["stall_current_fraction"],
-            stall_stable_samples=config["stall_stable_samples"],
-            stall_position_tolerance=config["stall_position_tolerance"],
-            max_probe_ticks=config["max_probe_ticks"],
-            probe_timeout=config["probe_timeout"],
-            poll_interval=config["poll_interval"],
-            on_status=self._set_status,
-            on_readout=self._set_readout,
-            abort_event=self.abort_event,
-        )
 
         self._build()
         self._begin_manual_step()
@@ -61,9 +48,9 @@ class CalibrationDialog:
     # UI construction
     # ------------------------------------------------------------------
     def _build(self):
-        self.window = tk.Toplevel(self.root)
+        self.window = tk.Toplevel(self.master)
         self.window.title("Calibrate travel limits")
-        self.window.transient(self.root)
+        self.window.transient(self.master)
         self.window.resizable(False, False)
         self.window.protocol("WM_DELETE_WINDOW", self._cancel)
 
@@ -97,12 +84,10 @@ class CalibrationDialog:
         ttk.Label(
             step2,
             text=(
-                f"The gripper closes at {settings.CALIBRATION['probe_current']} raw "
-                f"({settings.CALIBRATION['probe_current'] * settings.CURRENT_UNIT_MA:.0f} mA) "
-                "until the current\n"
-                "draw shows it has met the stop, then backs off "
-                f"{settings.CALIBRATION['backoff_ticks']} ticks so the\n"
-                "finger joints' safety snap is not held under tension.\n"
+                f"The gripper closes at {self._probe_current_text()} until the\n"
+                "current draw shows it has met the stop, then backs off "
+                f"{self.api.calibration_config['backoff_ticks']} ticks so\n"
+                "the finger joints' safety snap is not held under tension.\n"
                 "Keep hands clear once this starts."
             ),
             justify="left",
@@ -142,14 +127,22 @@ class CalibrationDialog:
 
         self.window.grab_set()
 
+    def _probe_current_text(self):
+        raw = self.api.calibration_config["probe_current"]
+        if self.api.current_unit_ma is None:
+            return f"{raw} raw"
+        return f"{raw} raw ({raw * self.api.current_unit_ma:.0f} mA)"
+
     # ------------------------------------------------------------------
     # Step 1: by hand
     # ------------------------------------------------------------------
     def _begin_manual_step(self):
         self.stage = "manual"
-        self.abort_event.clear()
+        self.api.abort_event.clear()
         try:
-            self.calibrator.release_for_manual_positioning()
+            # Drops torque and stops the monitor: the operator is about to move
+            # the fingers, and nothing else should be driving or polling them.
+            self.api.enable(False)
         except Exception as exc:
             messagebox.showerror("Calibration error", str(exc), parent=self.window)
             self._close()
@@ -161,8 +154,8 @@ class CalibrationDialog:
         if self.stage != "manual":
             return
         try:
-            position = self.gripper.read_present_position()
-            deg = position * settings.POSITION_UNIT_DEG
+            position = self.api.gripper.read_present_position()
+            deg = position * self.api.position_unit_deg
             self.manual_var.set(f"Present position: {position} ticks ({deg:.1f} deg)")
         except Exception as exc:
             self.manual_var.set(f"Present position: read failed ({exc})")
@@ -170,7 +163,7 @@ class CalibrationDialog:
 
     def _capture_max_open(self):
         try:
-            max_open = self.calibrator.capture_max_open()
+            max_open = self.api.gripper.read_present_position()
         except Exception as exc:
             messagebox.showerror("Calibration error", str(exc), parent=self.window)
             return
@@ -189,31 +182,31 @@ class CalibrationDialog:
         self.done_button.config(state="disabled")
         self.retry_button.config(state="disabled")
         self.save_button.config(state="disabled")
-        threading.Thread(target=self._probe_worker, daemon=True).start()
+        threading.Thread(
+            target=self._probe_worker, args=(max_open,), daemon=True
+        ).start()
 
     # ------------------------------------------------------------------
     # Step 2: worker thread
     # ------------------------------------------------------------------
-    def _probe_worker(self):
+    def _probe_worker(self, max_open):
+        # calibrate() reports progress through the API's own callbacks, so the
+        # wizard borrows them for the duration and hands them back after.
+        borrowed = (self.api.on_status, self.api.on_readout)
+        self.api.on_status, self.api.on_readout = self._set_status, self._set_readout
         try:
-            result = self.calibrator.probe_close_limit()
-        except CalibrationAborted:
-            self._finish_probe(None, "Calibration aborted. No limits were saved.")
-            return
+            # save=False: the limits go live on the API immediately either way,
+            # but nothing reaches disk until the operator accepts them.
+            result = self.api.calibrate(max_open=max_open, save=False)
         except Exception as exc:
             self._finish_probe(None, str(exc))
             return
         finally:
-            # The probe leaves the fingers back at MAX OPEN before returning,
-            # so it is safe to release them here.
-            try:
-                self.gripper.disable_torque()
-            except Exception:
-                pass
+            self.api.on_status, self.api.on_readout = borrowed
         self._finish_probe(result, None)
 
     def _finish_probe(self, result, error):
-        self.root.after(0, self._show_probe_outcome, result, error)
+        self.master.after(0, self._show_probe_outcome, result, error)
 
     def _show_probe_outcome(self, result, error):
         self.stage = "reviewing"
@@ -226,12 +219,13 @@ class CalibrationDialog:
             return
 
         self.result = result
-        travel_deg = result.travel_ticks * settings.POSITION_UNIT_DEG
+        travel_deg = result.travel_ticks * self.api.position_unit_deg
+        stop_current = f"{result.stop_current_raw} raw"
+        if self.api.current_unit_ma is not None:
+            stop_current += f", {result.stop_current_raw * self.api.current_unit_ma:.0f} mA"
         self.result_var.set(
             f"MAX OPEN      {result.max_open} ticks\n"
-            f"Hard stop     {result.hard_close} ticks "
-            f"(at {result.stop_current_raw} raw, "
-            f"{result.stop_current_raw * settings.CURRENT_UNIT_MA:.0f} mA)\n"
+            f"Hard stop     {result.hard_close} ticks (at {stop_current})\n"
             f"MIN OPEN      {result.min_open} ticks "
             f"(backed off {result.backoff_ticks})\n"
             f"Travel        {result.travel_ticks} ticks ({travel_deg:.1f} deg)"
@@ -243,8 +237,19 @@ class CalibrationDialog:
     # Outcome
     # ------------------------------------------------------------------
     def _save(self):
+        if self.api.limits_path is None:
+            messagebox.showerror(
+                "Save error",
+                "This gripper was built without a limits path, so there is "
+                "nowhere to write to. The measured limits are live on the API "
+                "regardless, but they will not survive the session.",
+                parent=self.window,
+            )
+            return
         try:
-            limits = settings.save_limits(self.result)
+            limits = save_limits(
+                self.api.limits_path, self.result, self.api.position_unit_deg
+            )
         except Exception as exc:
             messagebox.showerror("Save error", str(exc), parent=self.window)
             return
@@ -266,7 +271,7 @@ class CalibrationDialog:
                 parent=self.window,
             ):
                 return
-            self.abort_event.set()
+            self.api.abort_event.set()
             self.status_var.set("Abort requested - finishing current step...")
             return
         self._close()
@@ -275,7 +280,7 @@ class CalibrationDialog:
         self._cancel_poll()
         self.stage = "closed"
         try:
-            self.gripper.disable_torque()
+            self.api.gripper.disable_torque()
         except Exception:
             pass
         try:
@@ -293,17 +298,14 @@ class CalibrationDialog:
             self._poll_job = None
 
     # ------------------------------------------------------------------
-    # Calibrator callbacks (worker thread)
+    # Probe callbacks (worker thread)
     # ------------------------------------------------------------------
     def _set_status(self, text):
-        self.root.after(0, self.status_var.set, text)
+        self.master.after(0, self.status_var.set, text)
 
     def _set_readout(self, position, current):
-        deg = position * settings.POSITION_UNIT_DEG
-        ma = current * settings.CURRENT_UNIT_MA
-        self.root.after(
-            0,
-            self.readout_var.set,
-            f"Present position: {position} ({deg:.1f} deg)  |  "
-            f"Present current: {current} ({ma:.0f} mA)",
-        )
+        deg = position * self.api.position_unit_deg
+        reading = f"Present position: {position} ({deg:.1f} deg)  |  Present current: {current}"
+        if self.api.current_unit_ma is not None:
+            reading += f" ({current * self.api.current_unit_ma:.0f} mA)"
+        self.master.after(0, self.readout_var.set, reading)

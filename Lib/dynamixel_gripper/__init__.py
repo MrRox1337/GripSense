@@ -17,6 +17,10 @@ files (application config, control table, calibrated limits) and used on its own
   config       tuning defaults, and how limits and units are resolved
   slipwatch    the slip rule as arithmetic over current samples - no I/O, so it
                can be exercised on a list of numbers
+  teleop       the manual control console, and the calibration wizard beside
+               it in calibration_dialog. Tkinter, and the only part of this
+               package that needs it - imported on use, not on import, so a
+               machine without tkinter still gets everything above
 
 Most callers want the API:
 
@@ -24,6 +28,10 @@ Most callers want the API:
     api = GripperAPI.from_config("gripper_config.yaml",
                                  "xm430_control_table.yaml",
                                  "gripper_limits.yaml")
+
+and the same object opens the manual console when a person needs the sliders:
+
+    api.teleop()
 """
 
 from .api import GripperAPI

@@ -1,33 +1,36 @@
 """
-Tk front end for manual gripper control.
+Manual control console: three sliders and a live readout, over a live API.
 
-Three sliders (position, goal current, profile velocity) plus a live readout
-polled from the servo on a background thread. All hardware access goes
-through the DynamixelGripper returned by gripper_settings.connect().
+This is the servo at its rawest - Goal Position in ticks, Goal Current and
+Profile Velocity in raw units - which is the point. The API's normalised
+commands are what a program should use; this is what a person uses when they
+want to see what the fingers do at 104 raw of current, or park them somewhere
+to fit a part.
 
-Calibration is available from here too, through the same CalibrationDialog
-wizard: torque off, MAX OPEN set by hand, then an automatic closing probe.
-On success the position slider is reconfigured live to the new limits - no
-restart needed to drive them.
+The window never opens or closes a port. It is handed a connected GripperAPI,
+borrows the servo for as long as it is up, drops torque on the way out, and
+leaves the port to whoever opened it. So this is safe to open in the middle of
+a session and carry on afterwards:
+
+    with GripperAPI.from_config(...) as api:
+        api.teleop()          # blocks until the window is closed
+        api.enable(True)      # and the API is still usable after it
+        api.close()
+
+Tkinter is imported here rather than in api.py, so the package still imports on
+a machine without it.
 """
 
 import threading
 import time
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox, ttk
 
-import gripper_settings as settings
-from calibration_dialog import CalibrationDialog
+from .calibration_dialog import CalibrationDialog
 
-POSITION_UNIT_DEG = settings.POSITION_UNIT_DEG
-CURRENT_UNIT_MA = settings.CURRENT_UNIT_MA
-VELOCITY_UNIT_REV = settings.VELOCITY_UNIT_REV
+__all__ = ["TeleopWindow", "run"]
 
-CURRENT_MIN = settings.CURRENT_MIN
-CURRENT_MAX = settings.CURRENT_MAX
-
-VELOCITY_MIN = settings.VELOCITY_MIN
-VELOCITY_MAX = settings.VELOCITY_MAX
+DEFAULT_TITLE = "Slip-Aware Gripper Control"
 
 # Slider drag -> serial write throttle interval (seconds)
 DRAG_SEND_INTERVAL = 0.05
@@ -35,29 +38,43 @@ DRAG_SEND_INTERVAL = 0.05
 POLL_INTERVAL = 0.1
 
 
-class GripperApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Slip-Aware Gripper Control (XM430-W210-T)")
+def run(api, title=DEFAULT_TITLE):
+    """Open the console on its own Tk root and block until it is closed."""
+    root = tk.Tk()
+    TeleopWindow(root, api, title=title)
+    root.mainloop()
 
-        self.gripper = None
+
+class TeleopWindow:
+    """
+    The console, built into `master` - a Tk root or a Toplevel.
+
+    Construct it directly to put the console inside an application that already
+    has a main loop; use run() (or GripperAPI.teleop()) for a standalone window.
+    """
+
+    def __init__(self, master, api, title=DEFAULT_TITLE):
+        self.root = master
+        self.api = api
+        self.gripper = api.gripper
+        self.root.title(title)
+
         self.torque_enabled = False
         self._last_send_time = 0.0
         self._poll_thread_stop = threading.Event()
 
-        # Slider bounds come from the last calibration, so the position
-        # slider spans the travel of the fingers actually fitted. Falls back
-        # to the nominal values in gripper_config.yaml if the fingers have
-        # never been calibrated, which the UI says out loud rather than
-        # pretending the range is trustworthy. Instance state, not a module
-        # constant, because a calibration run from this window replaces it
-        # without a restart.
-        self.max_open_position, self.min_open_position, self.limits_calibrated = (
-            settings.travel_limits()
-        )
+        # Slider bounds come from the last calibration, so the position slider
+        # spans the travel of the fingers actually fitted. Falls back to the
+        # nominal values in the config if they have never been calibrated,
+        # which the UI says out loud rather than pretending the range is
+        # trustworthy. Instance state, not read once, because a calibration run
+        # from this window replaces it without a restart.
+        self.max_open_position = api.max_open_position
+        self.min_open_position = api.min_open_position
+        self.limits_calibrated = api.calibrated
 
         self._build_ui()
-        self._connect_hardware()
+        self._prime_servo()
         self._start_polling()
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -93,9 +110,9 @@ class GripperApp:
             self.limits_warning_label = ttk.Label(
                 self.pos_frame,
                 text=(
-                    "These limits belong to whichever fingers were fitted when they were\n"
-                    "written into gripper_config.yaml. Calibrate below before trusting\n"
-                    "these ends."
+                    "These limits are the nominal travel from the config, not a\n"
+                    "measurement of the fingers now fitted. Calibrate below before\n"
+                    "trusting these ends."
                 ),
                 foreground="red",
                 justify="left",
@@ -129,15 +146,16 @@ class GripperApp:
 
         # --- Current slider ---
         cur_frame = ttk.LabelFrame(
-            frame, text=f"Goal Current ({CURRENT_MIN}-{CURRENT_MAX} raw units)"
+            frame,
+            text=f"Goal Current ({self.api.current_min}-{self.api.current_max} raw units)",
         )
         cur_frame.grid(row=2, column=0, columnspan=2, sticky="ew", **pad)
 
-        self.current_var = tk.IntVar(value=CURRENT_MIN)
+        self.current_var = tk.IntVar(value=self.api.current_min)
         self.current_slider = ttk.Scale(
             cur_frame,
-            from_=CURRENT_MIN,
-            to=CURRENT_MAX,
+            from_=self.api.current_min,
+            to=self.api.current_max,
             orient="horizontal",
             length=400,
             variable=self.current_var,
@@ -149,19 +167,23 @@ class GripperApp:
         ttk.Label(cur_frame, textvariable=self.current_label_var).grid(
             row=1, column=0, columnspan=3, padx=8
         )
-        self._update_current_label(CURRENT_MIN)
+        self._update_current_label(self.api.current_min)
 
         # --- Speed (Profile Velocity) slider ---
         vel_frame = ttk.LabelFrame(
-            frame, text=f"Speed / Profile Velocity ({VELOCITY_MIN}-{VELOCITY_MAX} raw units)"
+            frame,
+            text=(
+                f"Speed / Profile Velocity "
+                f"({self.api.velocity_min}-{self.api.velocity_max} raw units)"
+            ),
         )
         vel_frame.grid(row=3, column=0, columnspan=2, sticky="ew", **pad)
 
-        self.velocity_var = tk.IntVar(value=VELOCITY_MAX)
+        self.velocity_var = tk.IntVar(value=self.api.velocity_max)
         self.velocity_slider = ttk.Scale(
             vel_frame,
-            from_=VELOCITY_MIN,
-            to=VELOCITY_MAX,
+            from_=self.api.velocity_min,
+            to=self.api.velocity_max,
             orient="horizontal",
             length=400,
             variable=self.velocity_var,
@@ -173,7 +195,7 @@ class GripperApp:
         ttk.Label(vel_frame, textvariable=self.velocity_label_var).grid(
             row=1, column=0, columnspan=3, padx=8
         )
-        self._update_velocity_label(VELOCITY_MAX)
+        self._update_velocity_label(self.api.velocity_max)
 
         # --- Live readout ---
         readout_frame = ttk.LabelFrame(frame, text="Live Readout")
@@ -196,18 +218,20 @@ class GripperApp:
         stop_button.grid(row=5, column=0, columnspan=2, sticky="ew", padx=10, pady=(0, 10))
 
     # ------------------------------------------------------------------
-    # Hardware connection
+    # Taking over the servo
     # ------------------------------------------------------------------
-    def _connect_hardware(self):
+    def _prime_servo(self):
         try:
-            self.gripper = settings.connect()
-            self.gripper.set_goal_current(CURRENT_MIN)
-            self.gripper.set_profile_velocity(VELOCITY_MAX)
-            # Prime Goal Position so the first torque-enable drives to
-            # max-open rather than to whatever stale goal the servo held.
+            # Whatever the API was doing with the servo, this window is driving
+            # it now: torque off, monitor stopped, sliders in charge.
+            self.api.enable(False)
+            self.gripper.set_goal_current(self.api.current_min)
+            self.gripper.set_profile_velocity(self.api.velocity_max)
+            # Prime Goal Position so the first torque-enable drives to max-open
+            # rather than to whatever stale goal the servo held.
             self.gripper.set_goal_position(self.max_open_position)
         except Exception as exc:
-            messagebox.showerror("Connection error", str(exc))
+            messagebox.showerror("Gripper error", str(exc))
             self.root.destroy()
             raise
 
@@ -233,6 +257,11 @@ class GripperApp:
         finally:
             self._set_torque_ui(False)
 
+    def _set_torque_ui(self, enabled):
+        self.torque_enabled = enabled
+        self.torque_button.config(text="Disable Torque" if enabled else "Enable Torque")
+        self.torque_status_var.set(f"Torque: {'ENABLED' if enabled else 'DISABLED'}")
+
     # ------------------------------------------------------------------
     # Calibration
     # ------------------------------------------------------------------
@@ -244,16 +273,17 @@ class GripperApp:
         )
 
     def _open_calibration_dialog(self):
-        # The dialog drops torque itself (release_for_manual_positioning), so
-        # the main window's torque state is brought in line immediately
-        # rather than going stale while the modal wizard is up.
+        # The dialog drops torque itself, so the window's torque state is
+        # brought in line immediately rather than going stale while the modal
+        # wizard is up.
         self._set_torque_ui(False)
-        CalibrationDialog(self.root, self.gripper, on_saved=self._apply_new_limits)
+        CalibrationDialog(self.root, self.api, on_saved=self._apply_new_limits)
 
-    def _apply_new_limits(self, limits):
+    def _apply_new_limits(self, _limits):
         """Called once the wizard's Save button has written new limits."""
-        self.max_open_position = int(limits["max_open"])
-        self.min_open_position = int(limits["min_open"])
+        # calibrate() already applied them to the API; this window just catches up.
+        self.max_open_position = self.api.max_open_position
+        self.min_open_position = self.api.min_open_position
         self.limits_calibrated = True
 
         self.pos_frame.config(text=self._position_frame_title())
@@ -265,19 +295,14 @@ class GripperApp:
         self.position_var.set(self.max_open_position)
         self._update_position_label(self.max_open_position)
 
-        # The probe leaves the fingers physically at MAX OPEN with torque
-        # off. Priming Goal Position to match now means the next Enable
-        # Torque drives to where the fingers already are rather than
-        # snapping toward whatever goal was set before calibration.
+        # The probe leaves the fingers physically at MAX OPEN with torque off.
+        # Priming Goal Position to match now means the next Enable Torque
+        # drives to where the fingers already are rather than snapping toward
+        # whatever goal was set before calibration.
         try:
             self.gripper.set_goal_position(self.max_open_position)
         except Exception as exc:
             messagebox.showerror("Post-calibration error", str(exc))
-
-    def _set_torque_ui(self, enabled):
-        self.torque_enabled = enabled
-        self.torque_button.config(text="Disable Torque" if enabled else "Enable Torque")
-        self.torque_status_var.set(f"Torque: {'ENABLED' if enabled else 'DISABLED'}")
 
     # ------------------------------------------------------------------
     # Slider callbacks
@@ -306,25 +331,33 @@ class GripperApp:
             send_fn()
             self.comm_status_var.set("Comm status: OK")
         except Exception as exc:
-            # Non-blocking: a transient busy/timeout during a drag should
-            # not pop a modal dialog (that stalls the Tk loop and causes
-            # writes to pile up, producing more errors). Just surface it.
+            # Non-blocking: a transient busy/timeout during a drag should not
+            # pop a modal dialog (that stalls the Tk loop and causes writes to
+            # pile up, producing more errors). Just surface it.
             self.comm_status_var.set(f"Comm status: {exc}")
 
     # ------------------------------------------------------------------
     # Label formatting
     # ------------------------------------------------------------------
     def _update_position_label(self, position_ticks):
-        deg = position_ticks * POSITION_UNIT_DEG
+        deg = position_ticks * self.api.position_unit_deg
         self.position_label_var.set(f"Raw: {position_ticks}  |  {deg:.2f} deg")
 
     def _update_current_label(self, current_units):
-        ma = current_units * CURRENT_UNIT_MA
-        self.current_label_var.set(f"Raw: {current_units}  |  {ma:.1f} mA")
+        self.current_label_var.set(
+            f"Raw: {current_units}{self._scaled(current_units, self.api.current_unit_ma, 'mA')}"
+        )
 
     def _update_velocity_label(self, velocity_units):
-        rev_per_min = velocity_units * VELOCITY_UNIT_REV
-        self.velocity_label_var.set(f"Raw: {velocity_units}  |  {rev_per_min:.2f} rev/min")
+        self.velocity_label_var.set(
+            f"Raw: {velocity_units}"
+            f"{self._scaled(velocity_units, self.api.velocity_unit_rev, 'rev/min')}"
+        )
+
+    @staticmethod
+    def _scaled(raw, unit, suffix):
+        """The engineering-unit half of a readout, or nothing if unscaled."""
+        return "" if unit is None else f"  |  {raw * unit:.2f} {suffix}"
 
     # ------------------------------------------------------------------
     # Live polling of present position / current
@@ -338,11 +371,11 @@ class GripperApp:
             try:
                 position_ticks = self.gripper.read_present_position()
                 current_units = self.gripper.read_present_current()
-                deg = position_ticks * POSITION_UNIT_DEG
-                ma = current_units * CURRENT_UNIT_MA
                 text = (
-                    f"Present position: {position_ticks} ({deg:.2f} deg)  |  "
-                    f"Present current: {current_units} ({ma:.1f} mA)"
+                    f"Present position: {position_ticks}"
+                    f"{self._scaled(position_ticks, self.api.position_unit_deg, 'deg')}"
+                    f"  ||  Present current: {current_units}"
+                    f"{self._scaled(current_units, self.api.current_unit_ma, 'mA')}"
                 )
                 self.root.after(0, self.readout_var.set, text)
             except Exception:
@@ -355,9 +388,10 @@ class GripperApp:
     # ------------------------------------------------------------------
     def _on_close(self):
         self._poll_thread_stop.set()
-        if self.gripper is not None:
-            try:
-                self.gripper.close()
-            except Exception:
-                pass
+        try:
+            # Torque off, but the port stays open - it belongs to whoever
+            # opened the API, not to this window.
+            self.gripper.disable_torque()
+        except Exception:
+            pass
         self.root.destroy()

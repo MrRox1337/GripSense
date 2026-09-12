@@ -50,6 +50,7 @@ from .config import (
     DEFAULT_GRASP,
     DEFAULT_POSITION_UNIT_DEG,
     DEFAULT_SLIP,
+    DEFAULT_VELOCITY,
     clamp01,
     load_yaml,
     resolve_limits,
@@ -103,6 +104,7 @@ class GripperAPI(MotionBase):
             "position_deg_per_tick", DEFAULT_POSITION_UNIT_DEG
         )
         self.current_unit_ma = units.get("current_ma_per_tick")
+        self.velocity_unit_rev = units.get("velocity_rev_per_min_per_tick")
 
         max_open, min_open, calibrated = resolve_limits(
             config, limits, self.position_unit_deg
@@ -132,6 +134,10 @@ class GripperAPI(MotionBase):
 
         self.current_min = int(current_cfg["min"])
         self.current_max = int(current_cfg["max"])
+
+        velocity_cfg = section(config, "velocity", DEFAULT_VELOCITY)
+        self.velocity_min = int(velocity_cfg["min"])
+        self.velocity_max = int(velocity_cfg["max"])
         self._grip_strength = clamp01(grip_strength)
         self._grip_current_raw = self._strength_to_raw(self._grip_strength)
 
@@ -400,6 +406,30 @@ class GripperAPI(MotionBase):
             f"travel {result.travel_ticks} ticks."
         )
         return result
+
+    # ------------------------------------------------------------------
+    # Manual control
+    # ------------------------------------------------------------------
+    def teleop(self, title=None):
+        """
+        Open the manual control console, and block until it is closed.
+
+        Three sliders straight onto the servo - Goal Position in ticks, Goal
+        Current and Profile Velocity in raw units - plus a live readout and the
+        calibration wizard. For driving the fingers by hand: normalised
+        open()/close()/set_position() are what a program should use.
+
+        The console takes the servo over while it is up, so this drops torque
+        and stops the monitor on the way in and leaves torque off on the way
+        out. It does not touch the port: this object is still connected and
+        usable afterwards, and still needs disconnecting.
+
+        Tk is imported here, not at module scope, so a machine with no tkinter
+        can still use everything else in this package.
+        """
+        from .teleop import DEFAULT_TITLE, run
+
+        run(self, title=title or DEFAULT_TITLE)
 
     # ------------------------------------------------------------------
     # Motion

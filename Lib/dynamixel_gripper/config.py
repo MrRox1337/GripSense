@@ -22,6 +22,7 @@ __all__ = [
     "DEFAULT_GRASP",
     "DEFAULT_POSITION_UNIT_DEG",
     "DEFAULT_SLIP",
+    "DEFAULT_VELOCITY",
     "LIMITS_HEADER",
     "clamp01",
     "load_yaml",
@@ -49,6 +50,10 @@ DEFAULT_SLIP = {
 }
 
 DEFAULT_CURRENT = {"min": 100, "max": 120}
+
+# Only the teleop console drives profile velocity directly; the API's own moves
+# run at grasp.profile_velocity.
+DEFAULT_VELOCITY = {"min": 100, "max": 480}
 
 # The travel-limit probe. Only used by GripperAPI.calibrate(); a config with no
 # calibration: block still calibrates, on these.
