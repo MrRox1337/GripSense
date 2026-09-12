@@ -104,7 +104,8 @@ pickerbot_gripper/
 │   │                               by hand, then the automatic closing probe
 │   ├── gripper_demo_ui.py          Tk app for the API demo — status tests and
 │   │                               normalised control, over GripperAPI alone
-│   ├── gripper_demo_report.py      The demo's CSV and accuracy matrix
+│   ├── gripper_demo_report.py      The demo's CSVs, accuracy matrix and
+│   │                               opening-linearity plot
 │   └── dynamixel_gripper/          Self-contained servo package: imports nothing
 │       │                           from the rest of this repository
 │       ├── __init__.py
@@ -133,6 +134,8 @@ Generated at runtime (not present on a fresh clone):
 Config/gripper_limits.yaml  Calibrated max/min open, rewritten per calibration
 Demo/grip_status_*.csv      One row per staged grip from a demo test run
 Demo/grip_status_*.jpg      Expected-vs-reported accuracy matrix for those runs
+Demo/opening_*.csv          Caliper readings from the opening-linearity sweeps
+Demo/opening_*.jpg          Measured against expected opening, for those sweeps
 ```
 
 > **Note on directory names:** `Lib/` and `Scripts/` are also the directory

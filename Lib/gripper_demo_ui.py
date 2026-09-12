@@ -20,6 +20,9 @@ Three panels, three jobs:
   status tests    close on an object, on nothing, and on an object that is then
                   pulled free, N times each, writing a CSV of every trial and a
                   matrix of how often the verdict matched the setup
+  opening sweep   step the jaws from 5% to 100% of calibrated travel, take a
+                  caliper reading at each stop, and plot what was measured
+                  against what a linear jaw would have given
 
 Threading: close(), wait_for_slip() and a whole test run block for seconds, so
 they run on a worker thread. Widgets are touched from the Tk thread only -
@@ -36,7 +39,14 @@ from tkinter import messagebox, ttk
 
 from dynamixel_gripper import AbortedError, GripperAPI
 from dynamixel_gripper.config import load_yaml
-from gripper_demo_report import Trial, write_accuracy_matrix, write_csv
+from gripper_demo_report import (
+    OpeningSample,
+    Trial,
+    write_accuracy_matrix,
+    write_csv,
+    write_opening_csv,
+    write_opening_plot,
+)
 
 STATUS_COLOURS = {
     "idle": "#202020",
@@ -59,6 +69,12 @@ TICK_MS = 100            # UI refresh; status is a plain attribute read
 SLIDER_INTERVAL = 0.05   # s between slider-driven register writes
 GRIP_HOLD_S = 2.0        # how long the one-shot grip test holds before reopening
 
+# The opening sweep: 5% to 100% of calibrated travel, always approached from
+# below so every point meets the same side of whatever backlash there is.
+SWEEP_STEP_PERCENT = 5
+DEFAULT_SWEEPS = 5
+SETTLE_BEFORE_READING_S = 0.5   # let the jaws stop moving before the caliper goes on
+
 
 class DemoApp:
     """The demo window. Owns the API object and the worker thread that drives it."""
@@ -75,12 +91,15 @@ class DemoApp:
 
         self.api = None
         self.trials = []
+        self.opening_samples = []
+        self.sweep_count = 0
 
         self.abort_event = threading.Event()
         self.ready_event = threading.Event()
         self.worker = None
         self.busy = False
         self.waiting_ready = False
+        self.waiting_reading = False
 
         self._last_position_send = 0.0
         self._last_strength_send = 0.0
@@ -91,6 +110,8 @@ class DemoApp:
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.csv_path = self.output_dir / f"grip_status_{stamp}.csv"
         self.matrix_path = self.output_dir / f"grip_status_{stamp}.jpg"
+        self.opening_csv_path = self.output_dir / f"opening_{stamp}.csv"
+        self.opening_plot_path = self.output_dir / f"opening_{stamp}.jpg"
 
         self._build_ui()
         self._refresh_controls()
@@ -107,6 +128,7 @@ class DemoApp:
         self._build_init_panel(frame, pad)
         self._build_control_panel(frame, pad)
         self._build_test_panel(frame, pad)
+        self._build_opening_panel(frame, pad)
         self._build_log(frame, pad)
 
     def _build_init_panel(self, parent, pad):
@@ -283,11 +305,45 @@ class DemoApp:
             row=3, column=0, sticky="w", padx=8, pady=(2, 8)
         )
 
+    def _build_opening_panel(self, parent, pad):
+        panel = ttk.LabelFrame(parent, text="Opening linearity")
+        panel.grid(row=3, column=0, sticky="ew", **pad)
+
+        run = ttk.Frame(panel)
+        run.grid(row=0, column=0, sticky="w", padx=8, pady=(6, 2))
+
+        ttk.Label(run, text="Sweeps:").grid(row=0, column=0, sticky="w")
+        self.sweeps_var = tk.StringVar(value=str(DEFAULT_SWEEPS))
+        ttk.Spinbox(run, from_=1, to=20, width=6, textvariable=self.sweeps_var).grid(
+            row=0, column=1, sticky="w", padx=(6, 16)
+        )
+
+        self.opening_button = ttk.Button(
+            run, text=f"Run opening test ({SWEEP_STEP_PERCENT}% steps)",
+            command=self._start_opening_test,
+        )
+        self.opening_button.grid(row=0, column=2, sticky="w")
+
+        ttk.Label(run, text="Caliper reading (mm):").grid(
+            row=0, column=3, sticky="w", padx=(20, 6)
+        )
+        self.reading_var = tk.StringVar()
+        self.reading_entry = ttk.Entry(run, width=10, textvariable=self.reading_var)
+        self.reading_entry.grid(row=0, column=4, sticky="w")
+        self.reading_entry.bind("<Return>", lambda _event: self._record_reading())
+
+        self.record_button = ttk.Button(run, text="Record", command=self._record_reading)
+        self.record_button.grid(row=0, column=5, sticky="w", padx=(6, 0))
+
+        self.opening_progress_var = tk.StringVar(value="")
+        ttk.Label(panel, textvariable=self.opening_progress_var, wraplength=720,
+                  justify="left").grid(row=1, column=0, sticky="w", padx=8, pady=(2, 8))
+
     def _build_log(self, parent, pad):
         panel = ttk.LabelFrame(parent, text="Log")
-        panel.grid(row=3, column=0, sticky="nsew", **pad)
+        panel.grid(row=4, column=0, sticky="nsew", **pad)
 
-        self.log_text = tk.Text(panel, height=12, width=96, wrap="word", state="disabled")
+        self.log_text = tk.Text(panel, height=10, width=96, wrap="word", state="disabled")
         self.log_text.grid(row=0, column=0, sticky="nsew", padx=(8, 0), pady=8)
 
         scrollbar = ttk.Scrollbar(panel, orient="vertical", command=self.log_text.yview)
@@ -503,7 +559,9 @@ class DemoApp:
     def _worker_done(self):
         self.busy = False
         self.waiting_ready = False
+        self.waiting_reading = False
         self.progress_var.set("")
+        self.opening_progress_var.set("")
         self._refresh_controls()
 
     def _abort(self):
@@ -554,6 +612,11 @@ class DemoApp:
             button.config(state="normal" if idle and enabled else "disabled")
         self.abort_button.config(state="normal" if self.busy else "disabled")
         self.ready_button.config(state="normal" if self.waiting_ready else "disabled")
+
+        self.opening_button.config(state="normal" if idle and enabled else "disabled")
+        reading = "normal" if self.waiting_reading else "disabled"
+        self.reading_entry.config(state=reading)
+        self.record_button.config(state=reading)
 
     # ------------------------------------------------------------------
     # Calibration
@@ -652,6 +715,142 @@ class DemoApp:
 
         self.api.open()
         return str(verdict)
+
+    # ------------------------------------------------------------------
+    # Opening linearity sweep
+    # ------------------------------------------------------------------
+    def _start_opening_test(self):
+        try:
+            sweeps = int(self.sweeps_var.get())
+        except ValueError:
+            messagebox.showerror("Sweeps", "Number of sweeps must be a whole number.")
+            return
+        if sweeps < 1:
+            messagebox.showerror("Sweeps", "Run at least one sweep.")
+            return
+        self._start_worker(lambda: self._opening_worker(sweeps))
+
+    def _opening_worker(self, sweeps):
+        steps = list(range(SWEEP_STEP_PERCENT, 101, SWEEP_STEP_PERCENT))
+        collected = 0
+
+        for _ in range(sweeps):
+            if self.abort_event.is_set():
+                break
+            self.sweep_count += 1
+            sweep = self.sweep_count
+            self._log_threadsafe(f"--- opening sweep {sweep} ---")
+
+            # The reference every reading in this sweep is a percentage of.
+            # Measured per sweep rather than once, so a jaw that was re-seated
+            # between sweeps is compared against its own full-open span.
+            self.api.open()
+            time.sleep(SETTLE_BEFORE_READING_S)
+            reference_mm = self._await_reading(
+                f"Sweep {sweep}: fingers fully open. Measure the jaw opening and "
+                "enter it in mm."
+            )
+            if reference_mm is None:
+                break
+            if reference_mm <= 0:
+                self._log_threadsafe("Full-open span must be greater than zero.")
+                break
+            self._log_threadsafe(f"  full-open span {reference_mm:.2f} mm")
+
+            for percent in steps:
+                if self.abort_event.is_set():
+                    break
+                self.api.set_position(percent / 100.0)
+                time.sleep(SETTLE_BEFORE_READING_S)
+
+                expected_mm = reference_mm * percent / 100.0
+                actual_mm = self._await_reading(
+                    f"Sweep {sweep}, {percent}% open (expected {expected_mm:.2f} mm). "
+                    "Measure and enter the reading in mm."
+                )
+                if actual_mm is None:
+                    break
+
+                self.opening_samples.append(OpeningSample(
+                    sweep=sweep,
+                    set_percent=float(percent),
+                    expected_mm=expected_mm,
+                    actual_mm=actual_mm,
+                    actual_percent=actual_mm * 100.0 / reference_mm,
+                ))
+                collected += 1
+                self._log_threadsafe(
+                    f"  {percent:3d}%  expected {expected_mm:6.2f} mm  "
+                    f"measured {actual_mm:6.2f} mm  "
+                    f"({actual_mm * 100.0 / reference_mm:5.1f}%)"
+                )
+
+        if collected:
+            self.root.after(0, self._write_opening_outputs)
+        else:
+            self._log_threadsafe("No readings taken, nothing written.")
+
+    def _await_reading(self, prompt):
+        """
+        Block the worker until the operator types a caliper reading in mm.
+
+        Returns None if the run was aborted instead; anything that will not
+        parse is rejected and asked for again rather than ending the sweep.
+        """
+        while True:
+            self.ready_event.clear()
+            self.root.after(0, self._set_waiting_reading, True, prompt)
+            while not self.ready_event.wait(0.1):
+                if self.abort_event.is_set():
+                    break
+            if self.abort_event.is_set():
+                # Abort also releases the wait, so check it before reading the
+                # box - otherwise an empty entry is reported as a bad number.
+                self.root.after(0, self._set_waiting_reading, False, "")
+                return None
+
+            text = self.reading_var.get().strip()
+            try:
+                value = float(text)
+            except ValueError:
+                self._log_threadsafe(
+                    f"'{text}' is not a number - enter the reading in mm."
+                )
+                continue
+            if value < 0:
+                self._log_threadsafe("A jaw opening cannot be negative.")
+                continue
+
+            self.root.after(0, self._set_waiting_reading, False, "")
+            self.root.after(0, self.reading_var.set, "")
+            return value
+
+    def _set_waiting_reading(self, waiting, text):
+        self.waiting_reading = waiting
+        self.opening_progress_var.set(text)
+        self._refresh_controls()
+        if waiting:
+            self.reading_entry.focus_set()
+
+    def _record_reading(self):
+        if self.waiting_reading:
+            self.ready_event.set()
+
+    def _write_opening_outputs(self):
+        """The sweep dataset and its plot, redrawn from every sweep so far."""
+        try:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            write_opening_csv(self.opening_csv_path, self.opening_samples)
+            write_opening_plot(self.opening_plot_path, self.opening_samples)
+        except Exception as exc:
+            self._log(f"Could not write the opening results: {exc}")
+            return
+        self.output_var.set(
+            f"Output: {self.opening_csv_path}  |  {self.opening_plot_path}"
+        )
+        self._log(
+            f"Wrote {self.opening_csv_path.name} and {self.opening_plot_path.name}"
+        )
 
     def _write_outputs(self):
         """CSV of every trial this session, and the matrix redrawn from all of it."""
