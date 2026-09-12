@@ -1,13 +1,13 @@
 # Gripper travel limits in raw position ticks.
 #
-# GENERATED FILE - written by the calibration wizard in the benchmark GUI
-# (Scripts/gripper_benchmark.py). Do not edit by hand: re-run calibration
-# instead, which is required anyway whenever fingers are swapped.
-calibrated_at: '2026-09-02T17:45:02'
-max_open: 3721
-min_open: 888
-hard_close: 868
+# GENERATED FILE - written by calibration, either a calibration wizard or
+# GripperAPI.calibrate(). Do not edit by hand: re-run calibration instead,
+# which is required anyway whenever fingers are swapped.
+calibrated_at: '2026-09-05T13:19:53'
+max_open: 3722
+min_open: 754
+hard_close: 734
 backoff_ticks: 20
 stop_current_raw: 109
-travel_ticks: 2833
-travel_deg: 249.0
+travel_ticks: 2968
+travel_deg: 260.86
