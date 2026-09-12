@@ -58,12 +58,8 @@ from .config import (
     section,
 )
 from .gripper import DynamixelGripper, load_control_table
-from .motion import (
-    SETTLE_STABLE_SAMPLES,
-    SETTLE_TOLERANCE_TICKS,
-    AbortedError,
-    MotionBase,
-)
+from .motion import AbortedError, MotionBase
+from .settle import SettleTracker
 from .slipwatch import SlipWatch
 from .status import GripperState, GripStatus, SlipEvent
 
@@ -159,6 +155,8 @@ class GripperAPI(MotionBase):
 
         self._grasp_position = None        # where the fingers stopped when gripping
         self._target_ticks = None
+        # Named _settle_tracker, not _settle: _settle() is a method.
+        self._settle_tracker = SettleTracker()
         self.last_slip = None
         self._reset_grasp()
 
@@ -408,30 +406,6 @@ class GripperAPI(MotionBase):
         return result
 
     # ------------------------------------------------------------------
-    # Manual control
-    # ------------------------------------------------------------------
-    def teleop(self, title=None):
-        """
-        Open the manual control console, and block until it is closed.
-
-        Three sliders straight onto the servo - Goal Position in ticks, Goal
-        Current and Profile Velocity in raw units - plus a live readout and the
-        calibration wizard. For driving the fingers by hand: normalised
-        open()/close()/set_position() are what a program should use.
-
-        The console takes the servo over while it is up, so this drops torque
-        and stops the monitor on the way in and leaves torque off on the way
-        out. It does not touch the port: this object is still connected and
-        usable afterwards, and still needs disconnecting.
-
-        Tk is imported here, not at module scope, so a machine with no tkinter
-        can still use everything else in this package.
-        """
-        from .teleop import DEFAULT_TITLE, run
-
-        run(self, title=title or DEFAULT_TITLE)
-
-    # ------------------------------------------------------------------
     # Motion
     # ------------------------------------------------------------------
     def open(self, wait=True):
@@ -630,8 +604,7 @@ class GripperAPI(MotionBase):
         self.slip.reset()
         self._grasp_position = None
         self._pending_classify = False
-        self._settle_last_position = None
-        self._settle_stable = 0
+        self._settle_tracker.reset()
 
     def _record_sample(self, position, current):
         with self._sample_lock:
@@ -756,19 +729,36 @@ class GripperAPI(MotionBase):
             last_readout = now
 
         if self._pending_classify and self.status is GripStatus.MOVING:
-            if (self._settle_last_position is not None
-                    and abs(position - self._settle_last_position) <= SETTLE_TOLERANCE_TICKS):
-                self._settle_stable += 1
-            else:
-                self._settle_stable = 0
-            self._settle_last_position = position
-
-            if self._settle_stable >= SETTLE_STABLE_SAMPLES:
+            if self._settle_tracker.feed(position):
                 self._pending_classify = False
                 self._settle(position, current)
 
         self._stop.wait(self.idle_poll_interval)
         return last_readout
+
+    # ------------------------------------------------------------------
+    # Manual control
+    # ------------------------------------------------------------------
+    def teleop(self, title=None):
+        """
+        Open the manual control console, and block until it is closed.
+
+        Three sliders straight onto the servo - Goal Position in ticks, Goal
+        Current and Profile Velocity in raw units - plus a live readout and the
+        calibration wizard. For driving the fingers by hand: normalised
+        open()/close()/set_position() are what a program should use.
+
+        The console takes the servo over while it is up, so this drops torque
+        and stops the monitor on the way in and leaves torque off on the way
+        out. It does not touch the port: this object is still connected and
+        usable afterwards, and still needs disconnecting.
+
+        Tk is imported here, not at module scope, so a machine with no tkinter
+        can still use everything else in this package.
+        """
+        from .teleop import DEFAULT_TITLE, run
+
+        run(self, title=title or DEFAULT_TITLE)
 
     # ------------------------------------------------------------------
     # Teardown

@@ -1,5 +1,5 @@
-# Application-level gripper settings, loaded by Lib/gripper_settings.py
-# and shared by every script. This file describes how the GRIPPER behaves.
+# Application-level gripper settings, handed to GripperAPI.from_config() by
+# the scripts in Scripts/. This file describes how the GRIPPER behaves.
 #
 # Alongside it, xm430_control_table.yaml holds the motor register addresses.
 

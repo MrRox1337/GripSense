@@ -11,15 +11,22 @@ than a comparison against the goal.
 That common part lives here. Limits come from calibration, never from a
 hardcoded tick value, and can be replaced with set_limits() if the fingers are
 recalibrated mid-session.
+
+The rule that decides when a move has finished lives next door in settle.py,
+because the monitor thread in api.py applies the same one to moves this class
+never blocks on. What stays here is the timing around it, which the two do not
+share: this path lets a move start before it samples at all, samples on a fixed
+interval and gives up after a timeout, while the monitor runs on its own clock
+and has neither.
 """
 
 import threading
 import time
 
+from .settle import SettleTracker
+
 # Motion timing
 SETTLE_POLL = 0.1              # seconds between position samples while moving
-SETTLE_TOLERANCE_TICKS = 3     # movement below this counts as stopped
-SETTLE_STABLE_SAMPLES = 5      # consecutive stable samples before "settled"
 SETTLE_TIMEOUT = 8.0           # give up waiting after this long
 MOVE_MIN_DWELL = 0.4           # let the move actually start before sampling
 
@@ -28,9 +35,7 @@ __all__ = [
     "MotionBase",
     "MOVE_MIN_DWELL",
     "SETTLE_POLL",
-    "SETTLE_STABLE_SAMPLES",
     "SETTLE_TIMEOUT",
-    "SETTLE_TOLERANCE_TICKS",
 ]
 
 
@@ -82,15 +87,6 @@ class MotionBase:
     # ------------------------------------------------------------------
     # Motion
     # ------------------------------------------------------------------
-    def prepare(self, goal_current):
-        """Set the constant run parameters and prime Goal Position."""
-        self.require_limits()
-        self.gripper.set_profile_velocity(self.profile_velocity)
-        self.gripper.set_goal_current(goal_current)
-        # Prime Goal Position so enabling torque does not jerk the fingers
-        # toward a stale goal left over from a previous session.
-        self.gripper.set_goal_position(self.max_open_position)
-
     def check_abort(self):
         if self.abort_event.is_set():
             raise AbortedError()
@@ -102,8 +98,9 @@ class MotionBase:
         time.sleep(MOVE_MIN_DWELL)
 
         deadline = time.monotonic() + self.settle_timeout
-        last_position = None
-        stable_samples = 0
+        # Local, not an attribute: this loop belongs to one call, and the
+        # monitor thread settles its own moves with its own tracker.
+        settle = SettleTracker()
         position, current = None, None
 
         while time.monotonic() < deadline:
@@ -112,18 +109,13 @@ class MotionBase:
                 position = self.gripper.read_present_position()
                 current = self.gripper.read_present_current()
             except Exception:
+                # Not a sample: the run in progress survives a bad read.
                 time.sleep(SETTLE_POLL)
                 continue
 
             self.on_readout(position, current)
-
-            if last_position is not None and abs(position - last_position) <= SETTLE_TOLERANCE_TICKS:
-                stable_samples += 1
-                if stable_samples >= SETTLE_STABLE_SAMPLES:
-                    break
-            else:
-                stable_samples = 0
-            last_position = position
+            if settle.feed(position):
+                break
             time.sleep(SETTLE_POLL)
 
         if position is None:
@@ -131,9 +123,3 @@ class MotionBase:
             position = self.gripper.read_present_position()
             current = self.gripper.read_present_current()
         return position, current
-
-    def open_fully(self):
-        return self.move_and_settle(self.max_open_position)
-
-    def close_fully(self):
-        return self.move_and_settle(self.min_open_position)

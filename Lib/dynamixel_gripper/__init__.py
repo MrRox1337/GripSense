@@ -15,8 +15,10 @@ files (application config, control table, calibrated limits) and used on its own
                normalised units, plus a live ok/slip/miss status
   status       the reported types: GripStatus, GripperState, SlipEvent
   config       tuning defaults, and how limits and units are resolved
-  slipwatch    the slip rule as arithmetic over current samples - no I/O, so it
-               can be exercised on a list of numbers
+  settle       the rule that decides a move has finished, as arithmetic over
+               position samples
+  slipwatch    the slip rule as arithmetic over current samples - like settle,
+               no I/O, so it can be exercised on a list of numbers
   teleop       the manual control console, and the calibration wizard beside
                it in calibration_dialog. Tkinter, and the only part of this
                package that needs it - imported on use, not on import, so a
@@ -43,6 +45,7 @@ from .calibration import (
 )
 from .gripper import DynamixelGripper, load_control_table, to_signed16, to_signed32
 from .motion import AbortedError, MotionBase
+from .settle import SettleTracker
 from .slipwatch import SlipWatch
 from .status import GripperState, GripStatus, SlipEvent
 
@@ -60,6 +63,7 @@ __all__ = [
     "GripperAPI",
     "GripperState",
     "GripStatus",
+    "SettleTracker",
     "SlipEvent",
     "SlipWatch",
 ]

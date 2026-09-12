@@ -69,21 +69,6 @@ class DynamixelGripper:
             raise IOError(f"Failed to set baudrate {baudrate}")
 
     # ------------------------------------------------------------------
-    # Unit scales (read straight from the control table)
-    # ------------------------------------------------------------------
-    @property
-    def position_unit_deg(self):
-        return self.ct["units"]["position_deg_per_tick"]
-
-    @property
-    def current_unit_ma(self):
-        return self.ct["units"]["current_ma_per_tick"]
-
-    @property
-    def velocity_unit_rev(self):
-        return self.ct["units"]["velocity_rev_per_min_per_tick"]
-
-    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
     def close(self):
@@ -92,88 +77,105 @@ class DynamixelGripper:
         finally:
             self.port_handler.closePort()
 
+    # ------------------------------------------------------------------
+    # Register access
+    #
+    # Every public method below is one call to _write or _read. These own the
+    # plumbing and nothing else: take the port lock, make the width-appropriate
+    # SDK call at whatever address the control table gives for `key`, drop the
+    # lock, and raise on a bad comm result or a servo error.
+    #
+    # What to send stays with the caller, in one visible expression, so each
+    # public method still reads straight off the datasheet - register name,
+    # register width, value. In particular the two's-complement masking is
+    # written at the method that knows the register's sign convention, not
+    # applied blanket here: a generic mask would quietly turn a negative
+    # profile velocity into a maximum-speed command instead of a packet error.
+    # ------------------------------------------------------------------
     def _check(self, comm_result, error, action):
         if comm_result != COMM_SUCCESS:
             raise IOError(f"{action} failed: {self.packet_handler.getTxRxResult(comm_result)}")
         if error != 0:
             raise IOError(f"{action} error: {self.packet_handler.getRxPacketError(error)}")
 
+    def _write_fn(self, width):
+        """The SDK call that writes a register `width` bytes wide."""
+        if width == 1:
+            return self.packet_handler.write1ByteTxRx
+        if width == 2:
+            return self.packet_handler.write2ByteTxRx
+        if width == 4:
+            return self.packet_handler.write4ByteTxRx
+        raise ValueError(f"No {width}-byte write in the Dynamixel SDK")
+
+    def _read_fn(self, width):
+        """The SDK call that reads a register `width` bytes wide."""
+        if width == 2:
+            return self.packet_handler.read2ByteTxRx
+        if width == 4:
+            return self.packet_handler.read4ByteTxRx
+        raise ValueError(f"No {width}-byte read in the Dynamixel SDK")
+
+    def _write(self, key, width, value, action):
+        """Write `value`, exactly as given, to the register named `key`."""
+        sdk_write = self._write_fn(width)
+        with self.lock:
+            comm_result, error = sdk_write(
+                self.port_handler, self.dxl_id,
+                self.ct["addresses"][key], value,
+            )
+        self._check(comm_result, error, action)
+
+    def _read(self, key, width, action):
+        """Read the register named `key`, raw and unsigned, as the wire had it."""
+        sdk_read = self._read_fn(width)
+        with self.lock:
+            value, comm_result, error = sdk_read(
+                self.port_handler, self.dxl_id,
+                self.ct["addresses"][key],
+            )
+        self._check(comm_result, error, action)
+        return value
+
     # ------------------------------------------------------------------
     # Writes
     # ------------------------------------------------------------------
     def disable_torque(self):
-        with self.lock:
-            comm_result, error = self.packet_handler.write1ByteTxRx(
-                self.port_handler, self.dxl_id,
-                self.ct["addresses"]["torque_enable"],
-                self.ct["values"]["torque_disable"],
-            )
-        self._check(comm_result, error, "Disable torque")
+        self._write("torque_enable", 1,
+                    self.ct["values"]["torque_disable"], "Disable torque")
+
+    def enable_torque(self):
+        self._write("torque_enable", 1,
+                    self.ct["values"]["torque_enable"], "Enable torque")
 
     def set_operating_mode_current_based_position(self):
         # Torque must be off to change operating mode.
         self.disable_torque()
-        with self.lock:
-            comm_result, error = self.packet_handler.write1ByteTxRx(
-                self.port_handler, self.dxl_id,
-                self.ct["addresses"]["operating_mode"],
-                self.ct["values"]["operating_mode_current_based_position"],
-            )
-        self._check(comm_result, error, "Set operating mode")
-
-    def enable_torque(self):
-        with self.lock:
-            comm_result, error = self.packet_handler.write1ByteTxRx(
-                self.port_handler, self.dxl_id,
-                self.ct["addresses"]["torque_enable"],
-                self.ct["values"]["torque_enable"],
-            )
-        self._check(comm_result, error, "Enable torque")
+        self._write("operating_mode", 1,
+                    self.ct["values"]["operating_mode_current_based_position"],
+                    "Set operating mode")
 
     def set_goal_current(self, current_units):
-        with self.lock:
-            comm_result, error = self.packet_handler.write2ByteTxRx(
-                self.port_handler, self.dxl_id,
-                self.ct["addresses"]["goal_current"],
-                int(current_units) & 0xFFFF,
-            )
-        self._check(comm_result, error, "Set goal current")
+        # Signed 16-bit: send the two's-complement pattern.
+        self._write("goal_current", 2,
+                    int(current_units) & 0xFFFF, "Set goal current")
 
     def set_profile_velocity(self, velocity_units):
-        with self.lock:
-            comm_result, error = self.packet_handler.write4ByteTxRx(
-                self.port_handler, self.dxl_id,
-                self.ct["addresses"]["profile_velocity"],
-                int(velocity_units),
-            )
-        self._check(comm_result, error, "Set profile velocity")
+        # Unsigned, and deliberately unmasked: a negative velocity should fail
+        # in the SDK rather than wrap to the fastest speed the servo has.
+        self._write("profile_velocity", 4,
+                    int(velocity_units), "Set profile velocity")
 
     def set_goal_position(self, position_ticks):
-        with self.lock:
-            comm_result, error = self.packet_handler.write4ByteTxRx(
-                self.port_handler, self.dxl_id,
-                self.ct["addresses"]["goal_position"],
-                int(position_ticks) & 0xFFFFFFFF,
-            )
-        self._check(comm_result, error, "Set goal position")
+        # Signed 32-bit: fingers that close past tick 0 are legitimate.
+        self._write("goal_position", 4,
+                    int(position_ticks) & 0xFFFFFFFF, "Set goal position")
 
     # ------------------------------------------------------------------
     # Reads
     # ------------------------------------------------------------------
     def read_present_position(self):
-        with self.lock:
-            value, comm_result, error = self.packet_handler.read4ByteTxRx(
-                self.port_handler, self.dxl_id,
-                self.ct["addresses"]["present_position"],
-            )
-        self._check(comm_result, error, "Read present position")
-        return to_signed32(value)
+        return to_signed32(self._read("present_position", 4, "Read present position"))
 
     def read_present_current(self):
-        with self.lock:
-            value, comm_result, error = self.packet_handler.read2ByteTxRx(
-                self.port_handler, self.dxl_id,
-                self.ct["addresses"]["present_current"],
-            )
-        self._check(comm_result, error, "Read present current")
-        return to_signed16(value)
+        return to_signed16(self._read("present_current", 2, "Read present current"))

@@ -1,6 +1,6 @@
 # Protocol 2.0 control table for the Dynamixel XM430-W210-T.
-# Copy this file and point gripper_settings.CONTROL_TABLE_PATH at the copy to
-# drive a different X-series servo without touching any code.
+# Copy this file and hand the copy to GripperAPI.from_config() to drive a
+# different X-series servo without touching any code.
 
 addresses:
   operating_mode: 11

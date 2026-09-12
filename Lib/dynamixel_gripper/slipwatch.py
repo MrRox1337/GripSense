@@ -70,11 +70,6 @@ class SlipWatch:
         self._watch_start = None
 
     @property
-    def armed(self):
-        """True once a baseline has been taken and a threshold derived."""
-        return self.threshold is not None
-
-    @property
     def detectable(self):
         """
         False when the hold is too weak for a drop to be distinguishable.
