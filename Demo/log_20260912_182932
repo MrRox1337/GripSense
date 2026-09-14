@@ -1,0 +1,966 @@
+Connected on COM5 @ 1000000 baud, protocol 2.0, id 1
+Torque released. Open the fingers fully by hand, then confirm.
+MAX OPEN captured at 3559 ticks.
+Closing under current limit to find the mechanical stop...
+Stop found at 649 ticks. Backing off to 669.
+Reopening to MAX OPEN.
+Limits written to C:\Users\amanr\Documents\MDX Courses\PDE4445\pickerbot_gripper\Config\gripper_limits.yaml.
+Calibrated: MAX OPEN 3559, MIN OPEN 669, travel 2890 ticks.
+Calibrated: max open 3559, min open 669, travel 2890 ticks
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+Grip strength 0.50 = 110 raw
+Closing...
+status idle -> moving
+status moving -> miss
+close() -> miss
+Reopening...
+status miss -> moving
+status moving -> idle
+open() -> idle
+Grip strength 0.50 = 110 raw
+Closing...
+status idle -> moving
+status moving -> ok
+close() -> ok
+Reopening...
+status ok -> moving
+status moving -> idle
+open() -> idle
+Grip strength 0.50 = 110 raw
+Closing...
+status idle -> moving
+status moving -> miss
+close() -> miss
+Reopening...
+status miss -> moving
+status moving -> idle
+open() -> idle
+Grip strength 0.50 = 110 raw
+Closing...
+status idle -> moving
+status moving -> ok
+close() -> ok
+Reopening...
+status ok -> moving
+status moving -> idle
+open() -> idle
+--- ok test, 40 trials ---
+Grip strength 0.50 = 110 raw
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 1 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 2 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 3 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 4 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 5 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 6 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 7 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 8 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 9 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 10 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 11 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 12 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 13 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 14 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 15 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 16 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 17 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 18 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 19 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 20 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 21 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 22 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 23 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 24 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 25 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 26 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 27 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 28 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 29 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 30 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 31 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 32 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 33 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 34 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 35 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 36 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 37 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 38 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 39 of 40: expected ok, got ok
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> moving
+status moving -> idle
+  ok trial 40 of 40: expected ok, got ok
+Wrote grip_status_20260912_182932.csv and grip_status_20260912_182932.jpg
+--- miss test, 40 trials ---
+Grip strength 0.50 = 110 raw
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 1 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 2 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 3 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 4 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 5 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 6 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 7 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 8 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 9 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 10 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 11 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 12 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 13 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 14 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 15 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 16 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 17 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 18 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 19 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 20 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 21 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 22 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 23 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 24 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 25 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 26 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 27 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 28 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 29 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 30 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 31 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 32 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 33 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 34 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 35 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 36 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 37 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 38 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 39 of 40: expected miss, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  miss trial 40 of 40: expected miss, got miss
+Wrote grip_status_20260912_182932.csv and grip_status_20260912_182932.jpg
+--- slip test, 40 trials ---
+Grip strength 0.50 = 110 raw
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  slip trial 1 of 40: expected slip, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> miss
+status miss -> moving
+status moving -> idle
+  slip trial 2 of 40: expected slip, got miss
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+Abort requested.
+Aborted.
+--- slip test, 40 trials ---
+Grip strength 0.50 = 110 raw
+status ok -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 1 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 2 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 3 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 4 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 5 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 6 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 7 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 8 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 9 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 10 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 11 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 12 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 13 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 14 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 15 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 16 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 17 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 18 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 19 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 20 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 21 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 22 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 23 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 24 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 25 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 26 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 27 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 28 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 29 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 30 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 31 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 32 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 33 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 34 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 35 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 36 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 37 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 38 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 39 of 40: expected slip, got slip
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> ok
+status ok -> slip
+status slip -> moving
+status moving -> idle
+  slip trial 40 of 40: expected slip, got slip
+Wrote grip_status_20260912_182932.csv and grip_status_20260912_182932.jpg
+status idle -> moving
+status moving -> idle
+status idle -> moving
+status moving -> idle
+Disconnected.
+
