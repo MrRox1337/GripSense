@@ -19,13 +19,24 @@ from pathlib import Path
 
 __all__ = [
     "EXPECTED_STATUSES",
+    "OPENING_HEADER",
     "OpeningSample",
+    "STATUS_HEADER",
     "Trial",
+    "read_csv",
+    "read_opening_csv",
     "write_accuracy_matrix",
     "write_csv",
     "write_opening_csv",
     "write_opening_plot",
 ]
+
+# The header row of each dataset, written and checked against from here so the
+# writer and the reader cannot drift apart, and so a file picked by hand can be
+# identified as one kind or the other before anything tries to parse it.
+STATUS_HEADER = ["grip", "expected", "observed"]
+OPENING_HEADER = ["sweep", "set opening %", "expected opening mm",
+                  "actual opening mm", "actual opening %"]
 
 # The three statuses a test can be staged to produce: close on an object, close
 # on nothing, close on an object that is then pulled free. `idle` and `moving`
@@ -45,10 +56,37 @@ def write_csv(path, trials):
     """Write every trial so far to `path`, newest run last, and return the path."""
     with open(Path(path), "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["grip", "expected", "observed"])
+        writer.writerow(STATUS_HEADER)
         for number, trial in enumerate(trials, start=1):
             writer.writerow([number, trial.expected, trial.observed])
     return Path(path)
+
+
+def _rows(path, expected_header, what):
+    """
+    Every data row of `path`, once its header says it is the right dataset.
+
+    Both datasets live in the same folder, so a file picked by hand may well be
+    the other one. Saying which it looks like beats a parse error four columns
+    in.
+    """
+    with open(Path(path), newline="", encoding="utf-8") as handle:
+        rows = list(csv.reader(handle))
+
+    if not rows:
+        raise ValueError(f"{Path(path).name} is empty.")
+    if rows[0] != expected_header:
+        raise ValueError(
+            f"{Path(path).name} does not look like {what}. Expected the header "
+            f"{expected_header}, found {rows[0]}."
+        )
+    return rows[1:]
+
+
+def read_csv(path):
+    """Read back a status-test CSV as the trials that produced it."""
+    return [Trial(expected=row[1], observed=row[2])
+            for row in _rows(path, STATUS_HEADER, "a status-test CSV")]
 
 
 def _matrix(trials):
@@ -140,10 +178,7 @@ def write_opening_csv(path, samples):
     """Write every sweep reading to `path`, and return the path."""
     with open(Path(path), "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(
-            ["sweep", "set opening %", "expected opening mm",
-             "actual opening mm", "actual opening %"]
-        )
+        writer.writerow(OPENING_HEADER)
         for sample in samples:
             writer.writerow([
                 sample.sweep,
@@ -153,6 +188,20 @@ def write_opening_csv(path, samples):
                 f"{sample.actual_percent:.2f}",
             ])
     return Path(path)
+
+
+def read_opening_csv(path):
+    """Read back an opening-sweep CSV as the samples that produced it."""
+    return [
+        OpeningSample(
+            sweep=int(row[0]),
+            set_percent=float(row[1]),
+            expected_mm=float(row[2]),
+            actual_mm=float(row[3]),
+            actual_percent=float(row[4]),
+        )
+        for row in _rows(path, OPENING_HEADER, "an opening-sweep CSV")
+    ]
 
 
 def _reference_mm(samples):

@@ -35,13 +35,15 @@ import time
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from dynamixel_gripper import AbortedError, GripperAPI
 from dynamixel_gripper.config import load_yaml
 from gripper_demo_report import (
     OpeningSample,
     Trial,
+    read_csv,
+    read_opening_csv,
     write_accuracy_matrix,
     write_csv,
     write_opening_csv,
@@ -295,6 +297,11 @@ class DemoApp:
         self.abort_button = ttk.Button(buttons, text="Abort", command=self._abort)
         self.abort_button.grid(row=0, column=4, sticky="w")
 
+        self.replot_status_button = ttk.Button(
+            buttons, text="Replot from CSV...", command=self._replot_status
+        )
+        self.replot_status_button.grid(row=0, column=5, sticky="w", padx=(20, 0))
+
         self.progress_var = tk.StringVar(value="")
         ttk.Label(panel, textvariable=self.progress_var, wraplength=720,
                   justify="left").grid(row=2, column=0, sticky="w", padx=8, pady=2)
@@ -324,20 +331,30 @@ class DemoApp:
         )
         self.opening_button.grid(row=0, column=2, sticky="w")
 
-        ttk.Label(run, text="Caliper reading (mm):").grid(
-            row=0, column=3, sticky="w", padx=(20, 6)
+        self.replot_opening_button = ttk.Button(
+            run, text="Replot from CSV...", command=self._replot_opening
         )
+        self.replot_opening_button.grid(row=0, column=3, sticky="w", padx=(20, 0))
+
+        # The operator's half, on its own row: all six controls in one line ran
+        # off the side of the window.
+        reading = ttk.Frame(panel)
+        reading.grid(row=1, column=0, sticky="w", padx=8, pady=2)
+
+        ttk.Label(reading, text="Caliper reading (mm):").grid(row=0, column=0, sticky="w")
         self.reading_var = tk.StringVar()
-        self.reading_entry = ttk.Entry(run, width=10, textvariable=self.reading_var)
-        self.reading_entry.grid(row=0, column=4, sticky="w")
+        self.reading_entry = ttk.Entry(reading, width=10, textvariable=self.reading_var)
+        self.reading_entry.grid(row=0, column=1, sticky="w", padx=(6, 0))
         self.reading_entry.bind("<Return>", lambda _event: self._record_reading())
 
-        self.record_button = ttk.Button(run, text="Record", command=self._record_reading)
-        self.record_button.grid(row=0, column=5, sticky="w", padx=(6, 0))
+        self.record_button = ttk.Button(
+            reading, text="Record", command=self._record_reading
+        )
+        self.record_button.grid(row=0, column=2, sticky="w", padx=(6, 0))
 
         self.opening_progress_var = tk.StringVar(value="")
         ttk.Label(panel, textvariable=self.opening_progress_var, wraplength=720,
-                  justify="left").grid(row=1, column=0, sticky="w", padx=8, pady=(2, 8))
+                  justify="left").grid(row=2, column=0, sticky="w", padx=8, pady=(2, 8))
 
     def _build_log(self, parent, pad):
         panel = ttk.LabelFrame(parent, text="Log")
@@ -618,6 +635,13 @@ class DemoApp:
         self.reading_entry.config(state=reading)
         self.record_button.config(state=reading)
 
+        # Replotting reads a file and draws a figure - no servo involved - so it
+        # stays available while disconnected. It only needs something to plot.
+        for button, prefix in ((self.replot_status_button, "grip_status_"),
+                               (self.replot_opening_button, "opening_")):
+            live = not self.busy and bool(self.saved_csvs(prefix))
+            button.config(state="normal" if live else "disabled")
+
     # ------------------------------------------------------------------
     # Calibration
     # ------------------------------------------------------------------
@@ -867,6 +891,80 @@ class DemoApp:
             return
         self.output_var.set(f"Output: {self.csv_path}  |  {self.matrix_path}")
         self._log(f"Wrote {self.csv_path.name} and {self.matrix_path.name}")
+
+    # ------------------------------------------------------------------
+    # Replotting a saved run
+    #
+    # The figures are derived from the CSVs, not the other way round, so a run
+    # whose numbers survived can always be drawn again - after a crash, or once
+    # the plot itself is changed and every earlier run should match.
+    # ------------------------------------------------------------------
+    def saved_csvs(self, prefix):
+        """Saved datasets of one kind, newest first. Empty if the folder is not there."""
+        if not self.output_dir.is_dir():
+            return []
+        return sorted(self.output_dir.glob(f"{prefix}*.csv"), reverse=True)
+
+    def _replot_status(self):
+        self._replot(
+            prefix="grip_status_",
+            title="Replot a status-test run",
+            read=read_csv,
+            draw=lambda path, rows: write_accuracy_matrix(
+                path, rows,
+                title=f"GripperAPI status accuracy - {len(rows)} trials",
+            ),
+            noun="trials",
+        )
+
+    def _replot_opening(self):
+        self._replot(
+            prefix="opening_",
+            title="Replot an opening sweep",
+            read=read_opening_csv,
+            draw=write_opening_plot,
+            noun="readings",
+        )
+
+    def _replot(self, prefix, title, read, draw, noun):
+        """Pick a saved CSV and redraw its figure beside it, under the same name."""
+        saved = self.saved_csvs(prefix)
+        chosen = filedialog.askopenfilename(
+            parent=self.root,
+            title=title,
+            initialdir=str(saved[0].parent if saved else self.output_dir),
+            initialfile=saved[0].name if saved else "",
+            filetypes=[("Run data", "*.csv"), ("All files", "*.*")],
+        )
+        if not chosen:
+            return
+
+        source = Path(chosen)
+        try:
+            rows = read(source)
+        except Exception as exc:
+            messagebox.showerror("Could not read that file", str(exc), parent=self.root)
+            return
+
+        if not rows:
+            messagebox.showinfo(
+                "Nothing to plot",
+                f"{source.name} has a header but no {noun} in it.",
+                parent=self.root,
+            )
+            return
+
+        # Same stem as its data, so a run's CSV and figure stay a matched pair
+        # and replotting refreshes the figure rather than littering the folder.
+        target = source.with_suffix(".jpg")
+        try:
+            draw(target, rows)
+        except Exception as exc:
+            messagebox.showerror("Could not draw the figure", str(exc), parent=self.root)
+            return
+
+        self.output_var.set(f"Output: {source}  |  {target}")
+        self._log(f"Replotted {len(rows)} {noun} from {source.name} to {target.name}")
 
     # ------------------------------------------------------------------
     # Log
