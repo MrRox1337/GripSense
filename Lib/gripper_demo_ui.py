@@ -127,11 +127,31 @@ class DemoApp:
         frame = ttk.Frame(self.root, padding=10)
         frame.grid(row=0, column=0, sticky="nsew")
 
-        self._build_init_panel(frame, pad)
-        self._build_control_panel(frame, pad)
-        self._build_test_panel(frame, pad)
-        self._build_opening_panel(frame, pad)
+        # Log on the left, controls stacked on the right. Everything in one
+        # column made the window taller than a laptop screen, and the log is
+        # the only part that benefits from the extra height anyway.
+        self.root.rowconfigure(0, weight=1)
+        self.root.columnconfigure(0, weight=1)
+        frame.rowconfigure(0, weight=1)
+        frame.columnconfigure(0, weight=1)   # log takes the slack when resized
+        frame.columnconfigure(1, weight=0)   # panels keep their natural width
+
         self._build_log(frame, pad)
+
+        controls = ttk.Frame(frame)
+        controls.grid(row=0, column=1, sticky="n")
+
+        self._build_init_panel(controls, pad)
+        self._build_control_panel(controls, pad)
+        self._build_test_panel(controls, pad)
+        self._build_opening_panel(controls, pad)
+
+        # The controls cannot usefully shrink, so the floor is whatever they
+        # need plus enough width for the log to still be worth reading.
+        # Everything above that goes to the log, in both directions.
+        self.root.update_idletasks()
+        self.root.minsize(controls.winfo_reqwidth() + 260,
+                          controls.winfo_reqheight() + 40)
 
     def _build_init_panel(self, parent, pad):
         panel = ttk.LabelFrame(parent, text="Initialisation")
@@ -149,7 +169,9 @@ class DemoApp:
             ttk.Label(panel, text="directory:").grid(
                 row=0, column=0, sticky="w", padx=8, pady=1
             )
-            ttk.Label(panel, text=str(shared)).grid(
+            # Bounded like the file rows below it: this is the longest string
+            # in the window and the panel no longer has a full window's width.
+            ttk.Label(panel, text=str(shared), wraplength=380, justify="left").grid(
                 row=0, column=1, sticky="w", padx=8, pady=1
             )
 
@@ -163,7 +185,7 @@ class DemoApp:
             ttk.Label(
                 panel,
                 text=f"{shown}{found}",
-                wraplength=700,
+                wraplength=380,
                 justify="left",
                 foreground="black" if path.exists() else "red",
             ).grid(row=row, column=1, sticky="w", padx=8, pady=1)
@@ -303,11 +325,11 @@ class DemoApp:
         self.replot_status_button.grid(row=0, column=5, sticky="w", padx=(20, 0))
 
         self.progress_var = tk.StringVar(value="")
-        ttk.Label(panel, textvariable=self.progress_var, wraplength=720,
+        ttk.Label(panel, textvariable=self.progress_var, wraplength=560,
                   justify="left").grid(row=2, column=0, sticky="w", padx=8, pady=2)
 
         self.output_var = tk.StringVar(value=f"Output: {self.output_dir}")
-        ttk.Label(panel, textvariable=self.output_var, wraplength=720,
+        ttk.Label(panel, textvariable=self.output_var, wraplength=560,
                   justify="left", foreground="#505050").grid(
             row=3, column=0, sticky="w", padx=8, pady=(2, 8)
         )
@@ -353,14 +375,16 @@ class DemoApp:
         self.record_button.grid(row=0, column=2, sticky="w", padx=(6, 0))
 
         self.opening_progress_var = tk.StringVar(value="")
-        ttk.Label(panel, textvariable=self.opening_progress_var, wraplength=720,
+        ttk.Label(panel, textvariable=self.opening_progress_var, wraplength=560,
                   justify="left").grid(row=2, column=0, sticky="w", padx=8, pady=(2, 8))
 
     def _build_log(self, parent, pad):
         panel = ttk.LabelFrame(parent, text="Log")
-        panel.grid(row=4, column=0, sticky="nsew", **pad)
+        panel.grid(row=0, column=0, sticky="nsew", **pad)
+        panel.rowconfigure(0, weight=1)
+        panel.columnconfigure(0, weight=1)
 
-        self.log_text = tk.Text(panel, height=10, width=96, wrap="word", state="disabled")
+        self.log_text = tk.Text(panel, height=26, width=46, wrap="word", state="disabled")
         self.log_text.grid(row=0, column=0, sticky="nsew", padx=(8, 0), pady=8)
 
         scrollbar = ttk.Scrollbar(panel, orient="vertical", command=self.log_text.yview)
