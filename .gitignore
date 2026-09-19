@@ -61,3 +61,7 @@ Desktop.ini
 
 progress.md
 Data/
+
+# Offline verification scripts — a working record of what was checked, not a
+# committed test suite. See Verification/README.md.
+Verification/
