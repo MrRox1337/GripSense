@@ -60,6 +60,7 @@ from .config import (
 from .gripper import DynamixelGripper, load_control_table
 from .motion import AbortedError, MotionBase
 from .settle import SettleTracker
+from .sliptrace import BASELINE, WATCH, SlipTrace
 from .slipwatch import SlipWatch
 from .status import GripperState, GripStatus, SlipEvent
 
@@ -158,6 +159,10 @@ class GripperAPI(MotionBase):
         # Named _settle_tracker, not _settle: _settle() is a method.
         self._settle_tracker = SettleTracker()
         self.last_slip = None
+
+        # Off unless record_slip_trace() asks for it. When None the watch loop
+        # does no extra work at all, so the default path is unchanged.
+        self.slip_trace = None
         self._reset_grasp()
 
     # ------------------------------------------------------------------
@@ -561,6 +566,28 @@ class GripperAPI(MotionBase):
             enabled=self._enabled,
         )
 
+    def record_slip_trace(self, enabled=True, max_samples=None):
+        """
+        Keep the current samples of each slip watch, for plotting.
+
+        Off by default: the verdict needs no history, and a watch that may run
+        for its full timeout would hold thousands of samples for nothing. Turn
+        it on when the curve itself is the point - documenting the rule, or
+        diagnosing a threshold that fires early or not at all.
+
+        Recording restarts with each baseline, so after a slip fires
+        `slip_trace` holds the watch that fired until the next one arms.
+        Returns the SlipTrace, or None when switching recording off.
+        """
+        if not enabled:
+            self.slip_trace = None
+            return None
+        if max_samples is None:
+            self.slip_trace = SlipTrace()
+        else:
+            self.slip_trace = SlipTrace(max_samples=max_samples)
+        return self.slip_trace
+
     def wait_for_slip(self, timeout=None):
         """
         Block until the grip stops being `ok`, and return whatever it became.
@@ -648,6 +675,11 @@ class GripperAPI(MotionBase):
         if self._stop.wait(self.slip.baseline_settle):
             return
 
+        trace = self.slip_trace
+        if trace is not None:
+            # A new baseline is a new watch, so it is a new recording.
+            trace.start()
+
         samples = []
         while len(samples) < self.slip.baseline_samples:
             if self._stop.is_set() or self._moving.is_set():
@@ -655,10 +687,15 @@ class GripperAPI(MotionBase):
             if self.status is not GripStatus.OK:
                 return
             # Closing draws negative current; only the magnitude matters.
-            samples.append(abs(self.gripper.read_present_current()))
+            magnitude = abs(self.gripper.read_present_current())
+            samples.append(magnitude)
+            if trace is not None:
+                trace.add(time.monotonic(), magnitude, BASELINE)
             self._stop.wait(self.slip.poll_interval)
 
         threshold = self.slip.arm(samples)
+        if trace is not None:
+            trace.arm(self.slip.baseline, threshold, self.slip.confirm_samples)
         self._armed.set()
 
         if threshold <= 0:
@@ -677,6 +714,9 @@ class GripperAPI(MotionBase):
         # threshold, but the snapshot keeps the sign the driver reported so
         # state() reads the same whether or not a grip is being held.
         self._record_sample(None, signed)
+
+        if self.slip_trace is not None:
+            self.slip_trace.add(now, abs(signed), WATCH)
 
         if now - last_readout >= READOUT_INTERVAL:
             self.on_readout(self._last_position, signed)
@@ -708,6 +748,8 @@ class GripperAPI(MotionBase):
         self.last_slip = dataclasses.replace(
             event, position_ticks=position, position_shift=shift
         )
+        if self.slip_trace is not None:
+            self.slip_trace.finish(self.last_slip)
         # Latched: the fingers will now carry on closing to MIN OPEN, and
         # without this the next classification would call that a miss.
         self._set_status(GripStatus.SLIP)
