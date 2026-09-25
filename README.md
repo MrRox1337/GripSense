@@ -14,6 +14,32 @@ XM430-W210-T** servo, built for the PDE4445 module at Middlesex University.
 
 ---
 
+## Contents
+
+- [Description](#description)
+  - [The control API](#the-control-api)
+  - [Travel-limit calibration](#travel-limit-calibration)
+- [Repository layout](#repository-layout)
+- [Software architecture](#software-architecture)
+  - [Package layering: what a client may touch](#package-layering-what-a-client-may-touch)
+  - [Control flow: who drives whom](#control-flow-who-drives-whom)
+  - [Data flow: configuration in, commands out](#data-flow-configuration-in-commands-out)
+  - [Calibration](#calibration)
+  - [The slip decision](#the-slip-decision)
+  - [The grasp decision](#the-grasp-decision)
+- [Hardware requirements](#hardware-requirements)
+- [Setup instructions](#setup-instructions)
+- [Usage examples](#usage-examples)
+  - [Scripted control with the API](#scripted-control-with-the-api)
+  - [Calibrating from your own script](#calibrating-from-your-own-script)
+  - [Manual control GUI](#manual-control-gui)
+  - [Driving the registers directly](#driving-the-registers-directly)
+- [Definitions](#definitions)
+- [FAQ](#faq)
+- [Acknowledgements](#acknowledgements)
+
+---
+
 ## Description
 
 The gripper runs in **current-based position control** (Operating Mode 5),
@@ -167,6 +193,56 @@ driver reusable outside this project.
 | Tk layer     | Owns widgets and threads, and nothing else. The console's sliders command the servo directly, one register write each; every other window goes through the API.                    |
 | API layer    | Commands in normalised units, a background monitor thread, and the `ok` / `slip` / `miss` verdict. Imports no UI — `teleop()` reaches for Tk only when it is called.               |
 | Driver       | Register reads and writes, serialised behind a lock.                                                                                                                              |
+
+### Package layering: what a client may touch
+
+```mermaid
+flowchart TB
+    subgraph CLIENT["Client applications - outside the package"]
+        C1["gripper_api_demo.py<br/>demo console, staged trials"]
+        C2["your own script or node"]
+    end
+
+    subgraph FACADE["GripperAPI - the published surface"]
+        F["open() / close() / set_position() / set_grip_strength()<br/>normalised to 0..1 over the calibrated range<br/>status: ok / slip / miss, polled from a monitor thread"]
+    end
+
+    subgraph INTERNAL["Package internals - reached only through the facade"]
+        DRV["gripper.py<br/>register reads and writes behind an RLock"]
+        CAL["calibration.py<br/>travel-limit discovery"]
+        SLIP["slipwatch.py<br/>present-current collapse rule"]
+    end
+
+    subgraph VENDOR["Vendor layer"]
+        SDK["dynamixel_sdk<br/>Protocol 2.0 packet handling"]
+        BUS(["U2D2 serial bus - 1 Mbaud<br/>Dynamixel XM430-W210-T"])
+    end
+
+    CFG["gripper_config.yaml<br/>port, currents, tuning"] --> F
+    CTAB["xm430_control_table.yaml<br/>registers + unit scales"] --> F
+    LIM["gripper_limits.yaml<br/>calibrated travel"] --> F
+
+    C1 --> F
+    C2 --> F
+
+    F ==> DRV
+    F ==> CAL
+    F ==> SLIP
+    CAL --> DRV
+    SLIP --> DRV
+    DRV --> SDK
+    SDK --> BUS
+
+    style FACADE stroke-width:3px
+    style INTERNAL stroke-dasharray: 6 4
+```
+
+The thick edges out of `GripperAPI` are the boundary a client never crosses.
+Above it a caller works in normalised units and a polled verdict; below it are
+register addresses, unit scales and the travel limits calibration discovers —
+none of which a client has to know, and none of which it can be broken by. The
+three YAML files enter at the facade, handed in by an entry point, so nothing
+below the line ever looks up a path of its own.
 
 ### Control flow: who drives whom
 
