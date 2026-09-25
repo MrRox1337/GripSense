@@ -19,6 +19,8 @@ files (application config, control table, calibrated limits) and used on its own
                position samples
   slipwatch    the slip rule as arithmetic over current samples - like settle,
                no I/O, so it can be exercised on a list of numbers
+  sliptrace    an optional recording of the samples slipwatch consumes, for
+               plotting what the rule saw - off unless asked for
   teleop       the manual control console, and the calibration wizard beside
                it in calibration_dialog. Tkinter, and the only part of this
                package that needs it - imported on use, not on import, so a
@@ -46,6 +48,7 @@ from .calibration import (
 from .gripper import DynamixelGripper, load_control_table, to_signed16, to_signed32
 from .motion import AbortedError, MotionBase
 from .settle import SettleTracker
+from .sliptrace import SlipTrace
 from .slipwatch import SlipWatch
 from .status import GripperState, GripStatus, SlipEvent
 
@@ -65,5 +68,6 @@ __all__ = [
     "GripStatus",
     "SettleTracker",
     "SlipEvent",
+    "SlipTrace",
     "SlipWatch",
 ]
