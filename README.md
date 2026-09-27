@@ -16,6 +16,7 @@ XM430-W210-T** servo, built for the PDE4445 module at Middlesex University.
 
 ## Contents
 
+- [Presentation and demonstration](#presentation-and-demonstration)
 - [Description](#description)
   - [The control API](#the-control-api)
   - [Travel-limit calibration](#travel-limit-calibration)
@@ -37,6 +38,25 @@ XM430-W210-T** servo, built for the PDE4445 module at Middlesex University.
 - [Definitions](#definitions)
 - [FAQ](#faq)
 - [Acknowledgements](#acknowledgements)
+
+---
+
+## Presentation and demonstration
+
+Two things to look at before reading any code — between them they cover the
+mechanism, the reasoning behind it and the software running.
+
+| | |
+| --- | --- |
+| **Project presentation** | <https://mrrox1337.github.io/GripSense/> |
+| **Video demonstration** | <https://youtu.be/ScccMYvOzOU> |
+
+The presentation covers the design case: why a parallel jaw over the angular and
+lead-screw prototypes that preceded it, why a smart servo over a stepper, and how
+grasp state and slip are recovered from motor current alone. The video shows the
+gripper running — calibration discovering the travel limits, then the three
+outcomes the classifier separates: a good grip, a miss on empty closure, and a
+slip when the object is pulled free.
 
 ---
 
